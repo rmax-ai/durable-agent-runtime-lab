@@ -2,9 +2,10 @@
 
 import json
 import shutil
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import typer
 import yaml
@@ -166,6 +167,221 @@ def _prepare_task_workspace(task_data: dict[str, Any], data_dir: Path, run_label
 
     shutil.copytree(fixture_path, workspace)
     return workspace
+
+
+def _save_run_manifest(data_dir: Path, manifest: dict[str, Any]) -> Path:
+    """Persist a run-level experiment manifest."""
+    path = data_dir / "reports" / f"run-{manifest['run_id'][:8]}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(manifest, indent=2, default=str))
+    return path
+
+
+def _select_latest_report_path(pattern: str, reports_dir: Path) -> Path | None:
+    """Return the newest report path for the given glob pattern."""
+    candidates = list(reports_dir.glob(pattern))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda path: (path.stat().st_mtime, path.name))
+
+
+def _format_task_summary_rows(task_summary: dict[str, dict[str, int]]) -> list[str]:
+    """Render a task summary table for run-level reports."""
+    output = []
+    output.append("| Task | Baseline | Durable | Total |")
+    output.append("|------|----------|---------|-------|")
+    for task_name, stats in task_summary.items():
+        output.append(
+            f"| {task_name} | {stats['baseline_ok']}/{stats['total']} "
+            f"| {stats['durable_ok']}/{stats['total']} | {stats['total']} |"
+        )
+    return output
+
+
+def _summarize_error(value: Any, limit: int = 120) -> str:
+    """Normalize one error value into a short single-line summary."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    text = " ".join(text.split())
+    if len(text) <= limit:
+        return text
+    return f"{text[: limit - 3]}..."
+
+
+def _render_single_experiment_report(results: dict[str, Any]) -> str:
+    """Generate Markdown for one experiment comparison."""
+    exp_id = results.get("experiment_id", "unknown")[:8]
+    goal = results.get("goal", "No goal specified")
+    timestamp = results.get("timestamp", "unknown")
+
+    baseline = results.get("baseline", {})
+    durable = results.get("durable", {})
+    metrics = results.get("metrics", {})
+    faults_configured = results.get("faults_configured", 0)
+    faults_triggered = results.get("faults_triggered", [])
+    provider_name = str(results.get("provider", "")).strip() or "unknown (not recorded)"
+    model_name = str(results.get("model", "")).strip() or "unknown (not recorded)"
+    is_mock_provider = provider_name == "mock"
+
+    output = []
+    output.append(f"# Experiment Report: {exp_id}")
+    output.append("")
+    output.append(f"**Generated:** {timestamp}")
+    output.append("")
+    output.append("---")
+    output.append("")
+    output.append("## Hypothesis")
+    output.append("")
+    output.append(
+        "The durable runtime (event-sourced, checkpointed, deterministic) "
+        "will match or exceed the baseline runtime in task success rate while "
+        "providing stronger guarantees around recovery and auditability."
+    )
+    output.append("")
+    output.append("## Setup")
+    output.append("")
+    output.append(f"- **Goal:** {goal}")
+    output.append(f"- **Experiment ID:** {exp_id}")
+    output.append(f"- **Provider:** {provider_name}")
+    output.append(f"- **Model:** {model_name}")
+    output.append("")
+    output.append("## Results")
+    output.append("")
+    output.append("| Metric | Baseline | Durable |")
+    output.append("|--------|----------|---------|")
+    output.append(
+        f"| Success | {'✅' if metrics.get('baseline_success') else '❌'} "
+        f"| {'✅' if metrics.get('durable_success') else '❌'} |"
+    )
+    output.append(
+        f"| Wall-clock time (s) | {baseline.get('wall_clock_time', 'N/A')} "
+        f"| {durable.get('wall_clock_time', 'N/A')} |"
+    )
+    output.append(
+        f"| Model calls | {metrics.get('baseline_model_calls', 'N/A')} "
+        f"| {durable.get('model_calls', 'N/A')} |"
+    )
+    output.append(f"| Speedup (baseline/durable) | — | {metrics.get('speedup', 'N/A')} |")
+    output.append("")
+    output.append("## Fault Injection Summary")
+    output.append("")
+    output.append(f"- **Faults configured:** {faults_configured}")
+    output.append(f"- **Faults triggered:** {len(faults_triggered)}")
+    if faults_triggered:
+        output.append("")
+        output.append("| Fault Type | Trigger |")
+        output.append("|------------|---------|")
+        for ft in faults_triggered:
+            trigger = ft.get("trigger", {})
+            trigger_desc = trigger.get("event_type", trigger.get("tool_name", "unknown"))
+            output.append(f"| {ft.get('type', 'unknown')} | {trigger_desc} |")
+    output.append("")
+    output.append("## Cost Analysis")
+    output.append("")
+    if is_mock_provider:
+        output.append(
+            "With MockProvider, actual API costs are not incurred. "
+            "Token estimates are based on simulated usage."
+        )
+    else:
+        output.append(
+            "This run used a real model provider. Any token counts, latency, and costs reflect "
+            "live inference behavior captured during the experiment."
+        )
+    output.append("")
+    output.append("## Limitations")
+    output.append("")
+    if is_mock_provider:
+        output.append("- Results are from MockProvider, not real model inference.")
+    elif provider_name == "unknown (not recorded)":
+        output.append("- Provider metadata was not recorded in this report.")
+    else:
+        output.append("- Single-run behavior may vary across repeated live model executions.")
+    output.append("- Single-run data — no statistical significance claimed.")
+    output.append("- Fault injection is deterministic; real-world failures are stochastic.")
+    output.append("")
+
+    return "\n".join(output)
+
+
+def _render_run_report(manifest: dict[str, Any]) -> str:
+    """Generate Markdown for one multi-experiment run manifest."""
+    run_id = str(manifest.get("run_id", "unknown"))[:8]
+    experiment_name = manifest.get("experiment_name", "Unnamed experiment")
+    config_path = manifest.get("config_path", "unknown")
+    provider_name = str(manifest.get("provider", "")).strip() or "unknown (not recorded)"
+    model_name = str(manifest.get("model", "")).strip() or "unknown (not recorded)"
+    started_at = manifest.get("started_at", "unknown")
+    finished_at = manifest.get("finished_at", "unknown")
+    repeats = manifest.get("repeats", 0)
+    faults_configured = manifest.get("faults_configured", 0)
+    task_summary = manifest.get("task_summary", {})
+    total_elapsed = manifest.get("total_elapsed_seconds", "N/A")
+    total_reports = manifest.get("reports_saved", 0)
+    entries = manifest.get("entries", [])
+
+    baseline_total = sum(stats.get("baseline_ok", 0) for stats in task_summary.values())
+    durable_total = sum(stats.get("durable_ok", 0) for stats in task_summary.values())
+    comparisons_total = sum(stats.get("total", 0) for stats in task_summary.values())
+
+    output = []
+    output.append(f"# Experiment Run Report: {run_id}")
+    output.append("")
+    output.append(f"**Started:** {started_at}")
+    output.append(f"**Finished:** {finished_at}")
+    output.append("")
+    output.append("---")
+    output.append("")
+    output.append("## Setup")
+    output.append("")
+    output.append(f"- **Experiment:** {experiment_name}")
+    output.append(f"- **Config:** {config_path}")
+    output.append(f"- **Run ID:** {run_id}")
+    output.append(f"- **Provider:** {provider_name}")
+    output.append(f"- **Model:** {model_name}")
+    output.append(f"- **Repeats per task:** {repeats}")
+    output.append(f"- **Faults configured:** {faults_configured}")
+    output.append(f"- **Reports saved:** {total_reports}")
+    output.append("")
+    output.append("## Aggregate Results")
+    output.append("")
+    output.extend(_format_task_summary_rows(task_summary))
+    output.append("")
+    output.append("| Overall Metric | Baseline | Durable | Total |")
+    output.append("|----------------|----------|---------|-------|")
+    output.append(
+        f"| Successful comparisons | {baseline_total}/{comparisons_total} "
+        f"| {durable_total}/{comparisons_total} | {comparisons_total} |"
+    )
+    output.append("")
+    output.append(f"- **Total elapsed:** {total_elapsed}s")
+    output.append("")
+    output.append("## Individual Reports")
+    output.append("")
+    output.append("| Task | Repeat | Baseline | Durable | Report | Failure Detail |")
+    output.append("|------|--------|----------|---------|--------|----------------|")
+    for entry in entries:
+        report_name = Path(entry.get("report_path", "")).name or "unknown"
+        failure_parts = []
+        if not entry.get("baseline_success"):
+            baseline_error = _summarize_error(entry.get("baseline_error"))
+            if baseline_error:
+                failure_parts.append(f"baseline: {baseline_error}")
+        if not entry.get("durable_success"):
+            durable_error = _summarize_error(entry.get("durable_error"))
+            if durable_error:
+                failure_parts.append(f"durable: {durable_error}")
+        failure_detail = " | ".join(failure_parts) or "—"
+        output.append(
+            f"| {entry.get('task_name', 'unknown')} | {entry.get('repeat', '?')} "
+            f"| {'✅' if entry.get('baseline_success') else '❌'} "
+            f"| {'✅' if entry.get('durable_success') else '❌'} | {report_name} "
+            f"| {failure_detail} |"
+        )
+    output.append("")
+
+    return "\n".join(output)
 
 
 # ── Core commands ───────────────────────────────────────────────────────────
@@ -425,6 +641,7 @@ def experiment(
     experiment_id: str = typer.Option(
         "", "--experiment-id", "-e", help="Experiment ID (for 'report')"
     ),
+    run_id: str = typer.Option("", "--run-id", help="Run ID (for 'report')"),
     output_format: str = typer.Option(
         "markdown", "--format", "-f", help="Report format: markdown or json"
     ),
@@ -440,13 +657,14 @@ def experiment(
       dar experiment run --config experiments/configs/core.yaml
       dar experiment run --config experiments/configs/core.yaml \
         --provider openai --model gpt-4o-mini
+      dar experiment report --run-id <id>
       dar experiment report --experiment-id <id>
       dar experiment report --experiment-id <id> --format json
     """
     if action == "run":
         _cmd_experiment_run(config_path, provider_name, model_name)
     elif action == "report":
-        _cmd_experiment_report(experiment_id, output_format)
+        _cmd_experiment_report(experiment_id, run_id, output_format)
     else:
         typer.echo(f"Error: unknown action '{action}'. Use 'run' or 'report'.", err=True)
         raise typer.Exit(1) from None
@@ -494,8 +712,11 @@ def _cmd_experiment_run(
         raise typer.Exit(1) from None
 
     experiment_start = time.monotonic()
+    run_started_at = datetime.now(UTC).isoformat()
+    run_id = str(uuid4())
     all_report_paths: list[Path] = []
     task_summary: dict[str, dict[str, int]] = {}
+    run_entries: list[dict[str, Any]] = []
 
     for task_path in task_paths:
         typer.echo(f"  ── {task_path} ──")
@@ -525,6 +746,20 @@ def _cmd_experiment_run(
 
                 baseline_ok = results.get("metrics", {}).get("baseline_success", False)
                 durable_ok = results.get("metrics", {}).get("durable_success", False)
+                run_entries.append(
+                    {
+                        "task_path": task_path,
+                        "task_name": task_name,
+                        "repeat": repeat + 1,
+                        "workspace": str(task_workspace),
+                        "report_path": str(report_path),
+                        "experiment_id": results.get("experiment_id", ""),
+                        "baseline_success": baseline_ok,
+                        "durable_success": durable_ok,
+                        "baseline_error": results.get("baseline", {}).get("error", ""),
+                        "durable_error": results.get("durable", {}).get("error", ""),
+                    }
+                )
 
                 typer.echo(
                     f"{label}baseline={'✅' if baseline_ok else '❌'} "
@@ -546,6 +781,24 @@ def _cmd_experiment_run(
                 typer.echo(f"{label}⚠️  Error: {exc}", err=True)
 
     total_elapsed = time.monotonic() - experiment_start
+    run_manifest = {
+        "run_id": run_id,
+        "experiment_name": name,
+        "config_path": config_path,
+        "provider": resolved_provider_name,
+        "model": resolved_model_name or "",
+        "started_at": run_started_at,
+        "finished_at": datetime.now(UTC).isoformat(),
+        "tasks": task_paths,
+        "repeats": repeats,
+        "faults_configured": len(faults),
+        "reports_saved": len(all_report_paths),
+        "report_paths": [str(path) for path in all_report_paths],
+        "task_summary": task_summary,
+        "entries": run_entries,
+        "total_elapsed_seconds": round(total_elapsed, 3),
+    }
+    run_manifest_path = _save_run_manifest(data_dir, run_manifest)
 
     # ── Print summary table ─────────────────────────────────────────────
     typer.echo()
@@ -564,11 +817,12 @@ def _cmd_experiment_run(
 
     typer.echo(f"\n  Total elapsed: {total_elapsed:.1f}s")
     typer.echo(f"  Reports saved: {len(all_report_paths)}")
+    typer.echo(f"  Run report:    {run_manifest_path.name}")
     typer.echo(f"  Reports dir:   {data_dir / 'reports' / ''}")
     typer.echo()
 
 
-def _cmd_experiment_report(experiment_id: str, output_format: str) -> None:
+def _cmd_experiment_report(experiment_id: str, run_id: str, output_format: str) -> None:
     """Generate a report from saved experiment results."""
     data_dir = _get_data_dir()
     reports_dir = data_dir / "reports"
@@ -590,13 +844,49 @@ def _cmd_experiment_report(experiment_id: str, output_format: str) -> None:
                     err=True,
                 )
                 raise typer.Exit(1) from None
-    else:
-        json_files = list(reports_dir.glob("experiment-*.json"))
-        if not json_files:
-            typer.echo("No experiment reports found in data/reports/", err=True)
-            raise typer.Exit(1) from None
-        report_path = max(json_files, key=lambda path: (path.stat().st_mtime, path.name))
-        typer.echo(f"Using latest report: {report_path}")
+        with open(report_path) as f:
+            results = json.load(f)
+        if output_format == "json":
+            typer.echo(json.dumps(results, indent=2, default=str))
+            return
+        typer.echo(_render_single_experiment_report(results))
+        return
+
+    if run_id:
+        report_path = reports_dir / f"run-{run_id[:8]}.json"
+        if not report_path.exists():
+            report_path = Path(run_id)
+            if not report_path.exists():
+                typer.echo(
+                    f"Run report not found: run-{run_id[:8]}.json "
+                    f"(checked {reports_dir} and {run_id})",
+                    err=True,
+                )
+                raise typer.Exit(1) from None
+        with open(report_path) as f:
+            results = json.load(f)
+        if output_format == "json":
+            typer.echo(json.dumps(results, indent=2, default=str))
+            return
+        typer.echo(_render_run_report(results))
+        return
+
+    latest_run = _select_latest_report_path("run-*.json", reports_dir)
+    if latest_run is not None:
+        typer.echo(f"Using latest run report: {latest_run}")
+        with open(latest_run) as f:
+            results = json.load(f)
+        if output_format == "json":
+            typer.echo(json.dumps(results, indent=2, default=str))
+            return
+        typer.echo(_render_run_report(results))
+        return
+
+    report_path = _select_latest_report_path("experiment-*.json", reports_dir)
+    if report_path is None:
+        typer.echo("No experiment reports found in data/reports/", err=True)
+        raise typer.Exit(1) from None
+    typer.echo(f"Using latest report: {report_path}")
 
     with open(report_path) as f:
         results = json.load(f)
@@ -605,100 +895,8 @@ def _cmd_experiment_report(experiment_id: str, output_format: str) -> None:
         typer.echo(json.dumps(results, indent=2, default=str))
         return
 
-    # ── Generate Markdown report ────────────────────────────────────────
-    exp_id = results.get("experiment_id", "unknown")[:8]
-    goal = results.get("goal", "No goal specified")
-    timestamp = results.get("timestamp", "unknown")
-
-    baseline = results.get("baseline", {})
-    durable = results.get("durable", {})
-    metrics = results.get("metrics", {})
-    faults_configured = results.get("faults_configured", 0)
-    faults_triggered = results.get("faults_triggered", [])
-    provider_name = str(results.get("provider", "")).strip() or "unknown (not recorded)"
-    model_name = str(results.get("model", "")).strip() or "unknown (not recorded)"
-    is_mock_provider = provider_name == "mock"
-
-    output = []
-    output.append(f"# Experiment Report: {exp_id}")
-    output.append("")
-    output.append(f"**Generated:** {timestamp}")
-    output.append("")
-    output.append("---")
-    output.append("")
-    output.append("## Hypothesis")
-    output.append("")
-    output.append(
-        "The durable runtime (event-sourced, checkpointed, deterministic) "
-        "will match or exceed the baseline runtime in task success rate while "
-        "providing stronger guarantees around recovery and auditability."
-    )
-    output.append("")
-    output.append("## Setup")
-    output.append("")
-    output.append(f"- **Goal:** {goal}")
-    output.append(f"- **Experiment ID:** {exp_id}")
-    output.append(f"- **Provider:** {provider_name}")
-    output.append(f"- **Model:** {model_name}")
-    output.append("")
-    output.append("## Results")
-    output.append("")
-    output.append("| Metric | Baseline | Durable |")
-    output.append("|--------|----------|---------|")
-    output.append(
-        f"| Success | {'✅' if metrics.get('baseline_success') else '❌'} "
-        f"| {'✅' if metrics.get('durable_success') else '❌'} |"
-    )
-    output.append(
-        f"| Wall-clock time (s) | {baseline.get('wall_clock_time', 'N/A')} "
-        f"| {durable.get('wall_clock_time', 'N/A')} |"
-    )
-    output.append(
-        f"| Model calls | {metrics.get('baseline_model_calls', 'N/A')} "
-        f"| {durable.get('model_calls', 'N/A')} |"
-    )
-    output.append(f"| Speedup (baseline/durable) | — | {metrics.get('speedup', 'N/A')} |")
-    output.append("")
-    output.append("## Fault Injection Summary")
-    output.append("")
-    output.append(f"- **Faults configured:** {faults_configured}")
-    output.append(f"- **Faults triggered:** {len(faults_triggered)}")
-    if faults_triggered:
-        output.append("")
-        output.append("| Fault Type | Trigger |")
-        output.append("|------------|---------|")
-        for ft in faults_triggered:
-            trigger = ft.get("trigger", {})
-            trigger_desc = trigger.get("event_type", trigger.get("tool_name", "unknown"))
-            output.append(f"| {ft.get('type', 'unknown')} | {trigger_desc} |")
-    output.append("")
-    output.append("## Cost Analysis")
-    output.append("")
-    if is_mock_provider:
-        output.append(
-            "With MockProvider, actual API costs are not incurred. "
-            "Token estimates are based on simulated usage."
-        )
-    else:
-        output.append(
-            "This run used a real model provider. Any token counts, latency, and costs reflect "
-            "live inference behavior captured during the experiment."
-        )
-    output.append("")
-    output.append("## Limitations")
-    output.append("")
-    if is_mock_provider:
-        output.append("- Results are from MockProvider, not real model inference.")
-    elif provider_name == "unknown (not recorded)":
-        output.append("- Provider metadata was not recorded in this report.")
-    else:
-        output.append("- Single-run behavior may vary across repeated live model executions.")
-    output.append("- Single-run data — no statistical significance claimed.")
-    output.append("- Fault injection is deterministic; real-world failures are stochastic.")
-    output.append("")
-
-    report_text = "\n".join(output)
-    typer.echo(report_text)
+    typer.echo(_render_single_experiment_report(results))
+    return
 
 
 # ── Import time for monotonic clock ─────────────────────────────────────────

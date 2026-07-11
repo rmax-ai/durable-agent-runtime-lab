@@ -236,7 +236,7 @@ UV_CACHE_DIR=.uv-cache uv run dar experiment run \
   --config experiments/configs/quickstart.yaml \
   --provider openai
 
-# Generate a report
+# Generate the latest run report
 uv run dar experiment report</code></pre>
     </div>
   </section>

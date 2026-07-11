@@ -81,6 +81,8 @@ uv run dar experiment run --config experiments/configs/quickstart.yaml
 uv run dar experiment report
 ```
 
+`dar experiment report` now defaults to the latest run-level report. After a multi-task config like `core.yaml`, it shows the aggregate summary for that whole run. Use `--experiment-id <id>` to inspect one specific repeat, or `--run-id <id>` to select a prior run manifest explicitly.
+
 For a real model-backed run, the experiment config can declare the provider and model. The CLI accepts overrides with precedence `CLI flag > config file > provider default`.
 
 Current OpenAI defaults:
