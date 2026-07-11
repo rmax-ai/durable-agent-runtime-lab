@@ -8,9 +8,7 @@ this engine. No model can directly alter workflow or task state.
 """
 
 import uuid
-from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
 from uuid import UUID
 
 from durable_agent_runtime.domain import Event, Plan
@@ -44,7 +42,7 @@ class OrchestratorEngine:
     ) -> UUID:
         """Initialize a new workflow. Returns workflow_id."""
         workflow_id = uuid.uuid4()
-        event = self._append_event(
+        self._append_event(
             workflow_id=workflow_id,
             event_type=EventType.WORKFLOW_CREATED,
             actor_id="orchestrator",
@@ -65,7 +63,8 @@ class OrchestratorEngine:
         event_type_map = {
             WorkflowStatus.COMPILED: EventType.GOAL_COMPILED,
             WorkflowStatus.PLANNED: EventType.PLAN_VALIDATED,
-            WorkflowStatus.RUNNING: EventType.WORKFLOW_CREATED,  # Reused — we transition to RUNNING via task dispatch
+            WorkflowStatus.RUNNING: EventType.WORKFLOW_CREATED,
+            # ^ RUNNING is reached via task dispatch, not an explicit workflow transition event
             WorkflowStatus.PAUSED: EventType.HUMAN_APPROVAL_REQUESTED,
             WorkflowStatus.RECOVERING: EventType.RECOVERY_STARTED,
             WorkflowStatus.COMPLETED: EventType.WORKFLOW_COMPLETED,
@@ -98,18 +97,14 @@ class OrchestratorEngine:
         """Return task IDs that are READY to be claimed."""
         all_tasks = self.state.get_tasks_by_workflow(workflow_id)
         return [
-            UUID(row.task_id)
-            for row in all_tasks
-            if TaskStatus(row.status) == TaskStatus.READY
+            UUID(row.task_id) for row in all_tasks if TaskStatus(row.status) == TaskStatus.READY
         ]
 
     def get_pending_tasks(self, workflow_id: UUID) -> list[UUID]:
         """Return task IDs that are PENDING (dependencies not yet met)."""
         all_tasks = self.state.get_tasks_by_workflow(workflow_id)
         return [
-            UUID(row.task_id)
-            for row in all_tasks
-            if TaskStatus(row.status) == TaskStatus.PENDING
+            UUID(row.task_id) for row in all_tasks if TaskStatus(row.status) == TaskStatus.PENDING
         ]
 
     def transition_task(self, task_id: UUID, workflow_id: UUID, target: TaskStatus) -> None:

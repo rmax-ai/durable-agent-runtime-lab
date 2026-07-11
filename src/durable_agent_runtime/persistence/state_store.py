@@ -4,10 +4,8 @@ Reconstructs workflow and task state from the canonical event log.
 Provides idempotency tracking for mutating actions.
 """
 
-import json
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
 from uuid import UUID
 
 from sqlmodel import Field, Session, SQLModel, select
@@ -15,15 +13,15 @@ from sqlmodel import Field, Session, SQLModel, select
 from durable_agent_runtime.domain.enums import TaskStatus, WorkflowStatus
 from durable_agent_runtime.persistence.database import get_engine, init_db
 
-
 # ── SQLModel tables ─────────────────────────────────────────────────────────
+
 
 class WorkflowStateRow(SQLModel, table=True):  # type: ignore[call-arg]
     __tablename__ = "workflow_state"
 
     workflow_id: str = Field(primary_key=True)
     status: str = Field(default=WorkflowStatus.CREATED.value)
-    active_plan_id: Optional[str] = Field(default=None)
+    active_plan_id: str | None = Field(default=None)
     current_phase: str = Field(default="")
     last_event_sequence: int = Field(default=-1)
     tokens_used: int = Field(default=0)
@@ -40,8 +38,8 @@ class TaskStateRow(SQLModel, table=True):  # type: ignore[call-arg]
     workflow_id: str = Field(index=True)
     status: str = Field(default=TaskStatus.PENDING.value)
     attempt_count: int = Field(default=0)
-    last_error: Optional[str] = Field(default=None)
-    committed_at: Optional[str] = Field(default=None)
+    last_error: str | None = Field(default=None)
+    committed_at: str | None = Field(default=None)
     updated_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
 
 
@@ -57,6 +55,7 @@ class IdempotencyRow(SQLModel, table=True):  # type: ignore[call-arg]
 
 
 # ── State Store ─────────────────────────────────────────────────────────────
+
 
 class StateStore:
     """Read/write interface for SQLite state projections.
@@ -93,13 +92,15 @@ class StateStore:
                 session.add(row)
             session.commit()
 
-    def get_workflow(self, workflow_id: UUID) -> Optional[WorkflowStateRow]:
+    def get_workflow(self, workflow_id: UUID) -> WorkflowStateRow | None:
         with self._session() as session:
             return session.get(WorkflowStateRow, str(workflow_id))
 
     # ── Task state ──────────────────────────────────────────────────────
 
-    def upsert_task(self, task_id: UUID, workflow_id: UUID, status: TaskStatus, **kwargs: object) -> None:
+    def upsert_task(
+        self, task_id: UUID, workflow_id: UUID, status: TaskStatus, **kwargs: object
+    ) -> None:
         with self._session() as session:
             existing = session.get(TaskStateRow, str(task_id))
             if existing:
@@ -117,7 +118,7 @@ class StateStore:
                 session.add(row)
             session.commit()
 
-    def get_task(self, task_id: UUID) -> Optional[TaskStateRow]:
+    def get_task(self, task_id: UUID) -> TaskStateRow | None:
         with self._session() as session:
             return session.get(TaskStateRow, str(task_id))
 
@@ -152,7 +153,7 @@ class StateStore:
                 session.add(row)
             session.commit()
 
-    def get_idempotency(self, idempotency_key: str) -> Optional[IdempotencyRow]:
+    def get_idempotency(self, idempotency_key: str) -> IdempotencyRow | None:
         with self._session() as session:
             return session.get(IdempotencyRow, idempotency_key)
 

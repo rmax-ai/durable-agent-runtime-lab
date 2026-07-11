@@ -8,7 +8,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-from typing import Optional
 from uuid import UUID
 
 from durable_agent_runtime.domain import Event
@@ -21,7 +20,7 @@ def _compute_payload_hash(payload: dict) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
-def _compute_event_hash(previous_hash: Optional[str], payload_hash: str) -> str:
+def _compute_event_hash(previous_hash: str | None, payload_hash: str) -> str:
     """SHA-256 of (previous_hash || payload_hash)."""
     data = (previous_hash or "") + payload_hash
     return hashlib.sha256(data.encode()).hexdigest()
@@ -90,7 +89,7 @@ class EventStore:
             event = event.model_copy(update={"sequence": next_seq})
 
         # Read previous event hash
-        prev_hash: Optional[str] = None
+        prev_hash: str | None = None
         lines = self._read_all_lines(workflow_id)
         if lines:
             try:
@@ -103,11 +102,13 @@ class EventStore:
         payload_hash = _compute_payload_hash(event.payload)
         event_hash = _compute_event_hash(prev_hash, payload_hash)
 
-        event = event.model_copy(update={
-            "payload_hash": payload_hash,
-            "previous_event_hash": prev_hash,
-            "event_hash": event_hash,
-        })
+        event = event.model_copy(
+            update={
+                "payload_hash": payload_hash,
+                "previous_event_hash": prev_hash,
+                "event_hash": event_hash,
+            }
+        )
 
         # Serialize and append
         event_dict = event.model_dump(mode="json")
@@ -143,12 +144,12 @@ class EventStore:
             return self._sequences[workflow_id]
         return self._rebuild_sequence(workflow_id)
 
-    def get_latest_event(self, workflow_id: UUID) -> Optional[Event]:
+    def get_latest_event(self, workflow_id: UUID) -> Event | None:
         """Return the most recent event for a workflow."""
         events = self.read_all(workflow_id)
         return events[-1] if events else None
 
-    def verify_chain(self, workflow_id: UUID) -> tuple[bool, Optional[str]]:
+    def verify_chain(self, workflow_id: UUID) -> tuple[bool, str | None]:
         """Verify hash chain integrity for a workflow.
 
         Returns (valid, error_message). Error message is None if valid.
@@ -157,8 +158,8 @@ class EventStore:
         if not events:
             return True, None
 
-        prev_hash: Optional[str] = None
-        for i, event in enumerate(events):
+        prev_hash: str | None = None
+        for _i, event in enumerate(events):
             # Verify payload hash
             computed_payload = _compute_payload_hash(event.payload)
             if computed_payload != event.payload_hash:
@@ -172,7 +173,7 @@ class EventStore:
                 return False, (
                     f"Event {event.sequence}: chain broken — "
                     f"expected prev={prev_hash[:12] if prev_hash else 'None'}... "
-                    f"got={event.previous_event_hash[:12] if event.previous_event_hash else 'None'}..."
+                    f"got={event.previous_event_hash[:12] if event.previous_event_hash else '?'}..."
                 )
 
             # Verify event_hash

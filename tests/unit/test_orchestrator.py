@@ -9,7 +9,6 @@ import pytest
 from durable_agent_runtime.domain import Plan, Task
 from durable_agent_runtime.domain.enums import TaskStatus, WorkflowStatus
 from durable_agent_runtime.orchestration.engine import OrchestratorEngine
-from durable_agent_runtime.persistence.event_store import EventStore
 
 
 @pytest.fixture
@@ -53,7 +52,9 @@ class TestWorkflowLifecycle:
         engine.transition_workflow(wf_id, WorkflowStatus.COMPLETED)
         assert engine.get_workflow_status(wf_id) == WorkflowStatus.COMPLETED
 
-    def test_invalid_transition_raises(self, engine: OrchestratorEngine, goal_id: uuid.UUID) -> None:
+    def test_invalid_transition_raises(
+        self, engine: OrchestratorEngine, goal_id: uuid.UUID
+    ) -> None:
         wf_id = engine.create_workflow(goal_id, "/tmp/test-repo")
         # Can't go CREATED → RUNNING
         with pytest.raises(ValueError, match="Invalid workflow transition"):
@@ -61,7 +62,9 @@ class TestWorkflowLifecycle:
 
 
 class TestTaskLifecycle:
-    def test_register_and_transition_tasks(self, engine: OrchestratorEngine, goal_id: uuid.UUID) -> None:
+    def test_register_and_transition_tasks(
+        self, engine: OrchestratorEngine, goal_id: uuid.UUID
+    ) -> None:
         wf_id = engine.create_workflow(goal_id, "/tmp/test-repo")
         engine.transition_workflow(wf_id, WorkflowStatus.COMPILED)
         engine.transition_workflow(wf_id, WorkflowStatus.PLANNED)
@@ -101,10 +104,15 @@ class TestTaskLifecycle:
         assert t2_row is not None
         assert t2_row.status == "pending"
 
-    def test_invalid_task_transition_raises(self, engine: OrchestratorEngine, goal_id: uuid.UUID) -> None:
+    def test_invalid_task_transition_raises(
+        self, engine: OrchestratorEngine, goal_id: uuid.UUID
+    ) -> None:
         wf_id = engine.create_workflow(goal_id, "/tmp/test-repo")
         t1 = uuid.uuid4()
-        plan = Plan(goal_id=goal_id, tasks=[Task(task_id=t1, title="Task 1", description="Test", estimated_complexity=1)])
+        plan = Plan(
+            goal_id=goal_id,
+            tasks=[Task(task_id=t1, title="Task 1", description="Test", estimated_complexity=1)],
+        )
         engine.register_tasks(wf_id, plan)
 
         # Can't go PENDING → EXECUTING
@@ -133,7 +141,9 @@ class TestBudgetTracking:
 
 
 class TestEventIntegrity:
-    def test_workflow_events_are_hash_chained(self, engine: OrchestratorEngine, goal_id: uuid.UUID) -> None:
+    def test_workflow_events_are_hash_chained(
+        self, engine: OrchestratorEngine, goal_id: uuid.UUID
+    ) -> None:
         wf_id = engine.create_workflow(goal_id, "/tmp/test-repo")
         engine.transition_workflow(wf_id, WorkflowStatus.COMPILED)
         engine.transition_workflow(wf_id, WorkflowStatus.PLANNED)

@@ -8,9 +8,10 @@ Tests invariants that must hold across all valid inputs:
 - Budget validation
 """
 
+import contextlib
 from uuid import uuid4
 
-from hypothesis import HealthCheck, assume, given, settings
+from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from durable_agent_runtime.domain import (
@@ -28,11 +29,10 @@ from durable_agent_runtime.domain.enums import (
     WorkflowStatus,
 )
 from durable_agent_runtime.domain.state_machine import (
-    can_transition,
     InvalidTransitionError,
+    can_transition,
     validate_transition,
 )
-
 
 # ── Strategies for generating valid domain objects ──────────────────────────
 
@@ -44,6 +44,7 @@ positive_int_st = st.integers(min_value=1, max_value=1000)
 
 
 # ── Event invariants ────────────────────────────────────────────────────────
+
 
 class TestEventInvariants:
     @given(
@@ -74,8 +75,15 @@ class TestEventInvariants:
     def test_event_sequence_strictly_increases(self, seq1: int) -> None:
         """Events in a workflow must have strictly increasing sequences."""
         wf_id = uuid4()
-        e1 = Event(sequence=seq1, workflow_id=wf_id, event_type=EventType.WORKFLOW_CREATED, actor_id="test")
-        e2 = Event(sequence=seq1 + 1, workflow_id=wf_id, event_type=EventType.ACTION_COMMITTED, actor_id="test")
+        e1 = Event(
+            sequence=seq1, workflow_id=wf_id, event_type=EventType.WORKFLOW_CREATED, actor_id="test"
+        )
+        e2 = Event(
+            sequence=seq1 + 1,
+            workflow_id=wf_id,
+            event_type=EventType.ACTION_COMMITTED,
+            actor_id="test",
+        )
         assert e1.sequence < e2.sequence
         assert e2.sequence - e1.sequence == 1
 
@@ -109,6 +117,7 @@ class TestEventInvariants:
 
 # ── Goal specification invariants ───────────────────────────────────────────
 
+
 class TestGoalSpecificationInvariants:
     @given(
         raw=st.text(min_size=1, max_size=100),
@@ -141,9 +150,7 @@ class TestGoalSpecificationInvariants:
         repo_path=st.text(min_size=1, max_size=30),
     )
     @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
-    def test_goal_defaults_are_reasonable(
-        self, raw: str, normalized: str, repo_path: str
-    ) -> None:
+    def test_goal_defaults_are_reasonable(self, raw: str, normalized: str, repo_path: str) -> None:
         """Default-constructed GoalSpecification has sensible defaults."""
         goal = GoalSpecification(
             raw_goal=raw,
@@ -157,6 +164,7 @@ class TestGoalSpecificationInvariants:
 
 
 # ── State machine invariants ────────────────────────────────────────────────
+
 
 class TestStateMachineInvariants:
     @given(
@@ -177,9 +185,7 @@ class TestStateMachineInvariants:
         target=st.sampled_from(list(TaskStatus)),
     )
     @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
-    def test_task_transition_idempotency(
-        self, current: TaskStatus, target: TaskStatus
-    ) -> None:
+    def test_task_transition_idempotency(self, current: TaskStatus, target: TaskStatus) -> None:
         """can_transition returns the same result every time."""
         result1 = can_transition(current, target)
         result2 = can_transition(current, target)
@@ -196,29 +202,35 @@ class TestStateMachineInvariants:
         """validate_transition does not mutate inputs or global state."""
         current_before = current
         target_before = target
-        try:
+        with contextlib.suppress(InvalidTransitionError):
             validate_transition(current, target, "task")
-        except InvalidTransitionError:
-            pass
         assert current == current_before
         assert target == target_before
 
-    @given(terminal=st.sampled_from([
-        WorkflowStatus.COMPLETED,
-        WorkflowStatus.FAILED,
-        WorkflowStatus.CANCELLED,
-    ]))
+    @given(
+        terminal=st.sampled_from(
+            [
+                WorkflowStatus.COMPLETED,
+                WorkflowStatus.FAILED,
+                WorkflowStatus.CANCELLED,
+            ]
+        )
+    )
     @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_terminal_workflow_has_no_outbound(self, terminal: WorkflowStatus) -> None:
         """Terminal workflow states cannot transition to any other state."""
         for target in WorkflowStatus:
             assert not can_transition(terminal, target)
 
-    @given(terminal=st.sampled_from([
-        TaskStatus.COMMITTED,
-        TaskStatus.FAILED,
-        TaskStatus.CANCELLED,
-    ]))
+    @given(
+        terminal=st.sampled_from(
+            [
+                TaskStatus.COMMITTED,
+                TaskStatus.FAILED,
+                TaskStatus.CANCELLED,
+            ]
+        )
+    )
     @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_terminal_task_has_no_outbound(self, terminal: TaskStatus) -> None:
         """Terminal task states cannot transition to any other state."""
@@ -227,6 +239,7 @@ class TestStateMachineInvariants:
 
 
 # ── Plan and task DAG invariants ────────────────────────────────────────────
+
 
 class TestPlanInvariants:
     @given(
@@ -280,6 +293,7 @@ class TestPlanInvariants:
 
 
 # ── Assertion invariants ────────────────────────────────────────────────────
+
 
 class TestAssertionInvariants:
     @given(

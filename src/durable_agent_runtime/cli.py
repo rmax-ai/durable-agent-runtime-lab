@@ -1,7 +1,6 @@
 """CLI entry point — Durable Agent Runtime."""
 
 import json
-import uuid
 from pathlib import Path
 from uuid import UUID
 
@@ -54,7 +53,7 @@ def run(
     """Run a benchmark task."""
     if runtime not in ("baseline", "durable"):
         typer.echo(f"Error: runtime must be 'baseline' or 'durable', got '{runtime}'", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
     typer.echo(f"Running task '{task}' with {runtime} runtime...")
     if output == "json":
@@ -75,14 +74,14 @@ def status(workflow_id: str) -> None:
         wf_id = UUID(workflow_id)
     except ValueError:
         typer.echo(f"Error: invalid workflow ID: {workflow_id}", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
     store = StateStore(_get_data_dir())
     wf = store.get_workflow(wf_id)
 
     if not wf:
         typer.echo(f"No workflow found with ID: {workflow_id}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
     typer.echo(f"Workflow: {wf.workflow_id}")
     typer.echo(f"  Status:       {wf.status}")
@@ -112,7 +111,7 @@ def events(
         wf_id = UUID(workflow_id)
     except ValueError:
         typer.echo(f"Error: invalid workflow ID: {workflow_id}", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
     store = EventStore(_get_data_dir())
     all_events = store.read_all(wf_id)
@@ -139,7 +138,7 @@ def verify_ledger(workflow_id: str) -> None:
         wf_id = UUID(workflow_id)
     except ValueError:
         typer.echo(f"Error: invalid workflow ID: {workflow_id}", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
     store = EventStore(_get_data_dir())
     valid, error = store.verify_chain(wf_id)
@@ -148,7 +147,7 @@ def verify_ledger(workflow_id: str) -> None:
         typer.echo(f"✅ Ledger integrity verified for workflow {workflow_id}")
     else:
         typer.echo(f"❌ Ledger integrity FAILED: {error}", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
 
 @app.command()
@@ -161,7 +160,7 @@ def inspect(workflow_id: str) -> None:
         wf_id = UUID(workflow_id)
     except ValueError:
         typer.echo(f"Error: invalid workflow ID: {workflow_id}", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
     events = EventStore(_get_data_dir())
     state = StateStore(_get_data_dir())
@@ -169,7 +168,7 @@ def inspect(workflow_id: str) -> None:
     wf = state.get_workflow(wf_id)
     if not wf:
         typer.echo(f"No workflow found: {workflow_id}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
     valid, err = events.verify_chain(wf_id)
 
@@ -222,7 +221,9 @@ def approve(workflow_id: str, proposal_id: str) -> None:
 
 
 @app.command()
-def reject(workflow_id: str, proposal_id: str, reason: str = typer.Option("", help="Rejection reason")) -> None:
+def reject(
+    workflow_id: str, proposal_id: str, reason: str = typer.Option("", help="Rejection reason")
+) -> None:
     """Reject a human-approval-required action."""
     typer.echo("reject — not yet implemented")
 

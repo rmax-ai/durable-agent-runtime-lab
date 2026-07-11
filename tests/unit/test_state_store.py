@@ -84,7 +84,9 @@ class TestIdempotency:
         store.record_idempotency("key-1", workflow_id, execution_status="committed")
         assert store.is_duplicate("key-1") is True
 
-    def test_not_duplicate_if_not_committed(self, store: StateStore, workflow_id: uuid.UUID) -> None:
+    def test_not_duplicate_if_not_committed(
+        self, store: StateStore, workflow_id: uuid.UUID
+    ) -> None:
         store.record_idempotency("key-2", workflow_id, execution_status="executing")
         assert store.is_duplicate("key-2") is False
 
