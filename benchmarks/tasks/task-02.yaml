@@ -1,0 +1,20 @@
+task_id: task-02
+name: Multi-file feature addition
+description: Add a new API endpoint with domain model updates and tests
+repository_fixture: benchmarks/repositories/task-02-feature/
+goal: "Add a GET /users endpoint that returns the list of users as JSON. Update src/app.py with the route, ensure src/models.py has the necessary data access, and add tests for the new endpoint"
+expected_files:
+  - src/app.py
+  - src/models.py
+  - tests/test_app.py
+forbidden_changes: []
+success_checks:
+  - type: test_pass
+    command: python -m pytest tests/ -v
+  - type: file_contains
+    path: src/app.py
+    pattern: "/users"
+  - type: test_pass
+    command: python -c "from src.models import User; assert User(id=1, name='Test', email='test@test.com')"
+complexity: 2
+estimated_minutes: 10

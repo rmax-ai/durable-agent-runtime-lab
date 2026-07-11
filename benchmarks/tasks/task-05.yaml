@@ -1,0 +1,28 @@
+task_id: task-05
+name: Delayed verification task
+description: Add a validation rule that causes integration tests to fail (tests pass locally but fail in CI)
+repository_fixture: benchmarks/repositories/task-05-delayed/
+goal: "Add a new validation rule to src/validator.py that rejects empty email fields. Update the unit test to cover this rule. Do NOT update the integration test — it will fail because the test data contains empty emails, demonstrating delayed failure detection."
+expected_files:
+  - src/validator.py
+  - tests/test_unit.py
+forbidden_changes:
+  - path: tests/test_integration.py
+    note: "Integration tests must NOT be modified — their failure is the expected outcome of this benchmark"
+success_checks:
+  - type: test_pass
+    command: python -m pytest tests/test_unit.py -v
+  - type: test_partial_fail
+    command: python -m pytest tests/ -v
+    expected_pass_count: 8
+    expected_fail_count: 2
+  - type: file_contains
+    path: src/validator.py
+    pattern: "empty"
+fault_injection_points:
+  - type: integration_test_pass
+    description: "If the integration test passes, the agent also modified it (forbidden)"
+  - type: unit_test_fail
+    description: "If the unit test fails, the agent didn't update it correctly"
+complexity: 2
+estimated_minutes: 10

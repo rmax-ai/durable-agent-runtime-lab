@@ -1,0 +1,25 @@
+task_id: task-04
+name: Repository-wide config migration
+description: Change logging format from plain text to structured JSON across all config files and loader
+repository_fixture: benchmarks/repositories/task-04-config/
+goal: "Change the logging format from '%(levelname)s %(message)s' to structured JSON logging. Update config/logging.yaml to use a JSON format, update src/config_loader.py to support JSON formatting, and ensure tests pass."
+expected_files:
+  - config/logging.yaml
+  - src/config_loader.py
+  - tests/test_config.py
+forbidden_changes:
+  - path: config/app.yaml
+    note: "App config should not be modified"
+  - path: config/db.yaml
+    note: "Database config should not be modified"
+success_checks:
+  - type: test_pass
+    command: python -m pytest tests/ -v
+  - type: file_contains
+    path: config/logging.yaml
+    pattern: "json"
+  - type: file_contains
+    path: src/config_loader.py
+    pattern: "json"
+complexity: 2
+estimated_minutes: 10

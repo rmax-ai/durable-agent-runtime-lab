@@ -1,0 +1,26 @@
+task_id: task-06
+name: Restart recovery task
+description: Write a script that reads, increments, and atomically writes a counter; test verifies idempotency
+repository_fixture: benchmarks/repositories/task-06-recovery/
+goal: "Write a script that reads a counter from counter.txt, increments it by 1, and writes it back atomically (using temp file + rename pattern). The script must be recoverable if killed mid-write. Tests verify idempotency and atomicity."
+expected_files:
+  - src/main.py
+  - counter.txt
+forbidden_changes:
+  - path: tests/test_counter.py
+    note: "Tests should not be modified"
+success_checks:
+  - type: test_pass
+    command: python -m pytest tests/ -v
+  - type: command_success
+    command: python -m src.main
+    expected_output_contains: "Current counter value:"
+  - type: command_success
+    command: python -c "from pathlib import Path; f=Path('counter.txt'); assert int(f.read_text().strip()) >= 1"
+fault_injection_points:
+  - type: process_kill_mid_write
+    description: "Kill the process after opening the temp file but before rename; counter value must not be corrupted"
+  - type: duplicate_write
+    description: "Write the same value twice; counter should not double-count"
+complexity: 3
+estimated_minutes: 10

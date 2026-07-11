@@ -1,0 +1,27 @@
+task_id: task-03
+name: Failing dependency migration
+description: Upgrade pydantic from v1 to v2 and fix all model definitions
+repository_fixture: benchmarks/repositories/task-03-migration/
+goal: "Upgrade pydantic from v1.x to v2.x. Update pyproject.toml dependency, migrate all model definitions from Pydantic v1 API (class Config, @validator) to v2 API (model_config, @field_validator). All tests must pass."
+expected_files:
+  - pyproject.toml
+  - src/models.py
+  - tests/test_models.py
+forbidden_changes:
+  - path: tests/test_models.py
+    note: "The test file should only need minimal updates for the v2 API (import changes etc.)"
+success_checks:
+  - type: dependency_check
+    package: pydantic
+    version_operator: ">="
+    version: "2.0.0"
+  - type: test_pass
+    command: python -m pytest tests/ -v
+  - type: file_does_not_contain
+    path: src/models.py
+    pattern: "class Config"
+  - type: file_contains
+    path: src/models.py
+    pattern: "model_config"
+complexity: 3
+estimated_minutes: 15

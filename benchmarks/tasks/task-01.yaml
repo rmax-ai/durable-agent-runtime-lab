@@ -1,0 +1,24 @@
+task_id: task-01
+name: Small deterministic refactor
+description: Rename a public function and update all call sites
+repository_fixture: benchmarks/repositories/task-01-refactor/
+goal: "Rename the function compute_tax to calculate_tax in src/calculator.py and update all call sites in the test file"
+expected_files:
+  - src/calculator.py
+forbidden_changes:
+  - path: tests/test_calculator.py
+    note: "Tests should only be updated for the function name reference change, not structural changes"
+success_checks:
+  - type: test_pass
+    command: python -m pytest tests/ -v
+  - type: file_contains
+    path: src/calculator.py
+    pattern: "def calculate_tax"
+  - type: file_does_not_contain
+    path: src/calculator.py
+    pattern: "def compute_tax"
+fault_injection_points:
+  - type: partial_rename
+    description: "Rename only the definition but not one call site"
+complexity: 1
+estimated_minutes: 5
