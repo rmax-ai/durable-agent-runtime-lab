@@ -1,0 +1,164 @@
+{
+  "$defs": {
+    "Assertion": {
+      "description": "A precondition or postcondition assertion.",
+      "properties": {
+        "assertion_id": {
+          "format": "uuid",
+          "title": "Assertion Id",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "assertion_type": {
+          "title": "Assertion Type",
+          "type": "string"
+        },
+        "parameters": {
+          "additionalProperties": true,
+          "title": "Parameters",
+          "type": "object"
+        }
+      },
+      "required": [
+        "description",
+        "assertion_type"
+      ],
+      "title": "Assertion",
+      "type": "object"
+    },
+    "RiskLevel": {
+      "description": "Risk classification for goals, tasks, tool calls, and actions.",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ],
+      "title": "RiskLevel",
+      "type": "string"
+    },
+    "TaskStatus": {
+      "description": "Task-level state machine states (Section 10).",
+      "enum": [
+        "pending",
+        "ready",
+        "claimed",
+        "proposing",
+        "verifying",
+        "executing",
+        "post_verifying",
+        "committed",
+        "rejected",
+        "retry_wait",
+        "blocked",
+        "failed",
+        "cancelled"
+      ],
+      "title": "TaskStatus",
+      "type": "string"
+    }
+  },
+  "description": "A single task within a plan DAG (Section 9.3).",
+  "properties": {
+    "task_id": {
+      "format": "uuid",
+      "title": "Task Id",
+      "type": "string"
+    },
+    "title": {
+      "title": "Title",
+      "type": "string"
+    },
+    "description": {
+      "title": "Description",
+      "type": "string"
+    },
+    "dependencies": {
+      "description": "Task IDs this task depends on",
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Dependencies",
+      "type": "array"
+    },
+    "status": {
+      "$ref": "#/$defs/TaskStatus",
+      "default": "pending"
+    },
+    "risk_level": {
+      "$ref": "#/$defs/RiskLevel",
+      "default": "medium"
+    },
+    "estimated_complexity": {
+      "default": 1,
+      "minimum": 1,
+      "title": "Estimated Complexity",
+      "type": "integer"
+    },
+    "required_tools": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Required Tools",
+      "type": "array"
+    },
+    "preconditions": {
+      "items": {
+        "$ref": "#/$defs/Assertion"
+      },
+      "title": "Preconditions",
+      "type": "array"
+    },
+    "postconditions": {
+      "items": {
+        "$ref": "#/$defs/Assertion"
+      },
+      "title": "Postconditions",
+      "type": "array"
+    },
+    "max_attempts": {
+      "default": 3,
+      "minimum": 1,
+      "title": "Max Attempts",
+      "type": "integer"
+    },
+    "human_approval_required": {
+      "default": false,
+      "title": "Human Approval Required",
+      "type": "boolean"
+    },
+    "assigned_to": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Actor/model assigned to this task",
+      "title": "Assigned To"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "metadata": {
+      "additionalProperties": true,
+      "title": "Metadata",
+      "type": "object"
+    }
+  },
+  "required": [
+    "title",
+    "description"
+  ],
+  "title": "Task",
+  "type": "object"
+}

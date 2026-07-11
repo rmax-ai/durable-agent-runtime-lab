@@ -1,0 +1,254 @@
+{
+  "$defs": {
+    "ModelConfiguration": {
+      "description": "Provider and model configuration at checkpoint time.",
+      "properties": {
+        "provider": {
+          "title": "Provider",
+          "type": "string"
+        },
+        "model": {
+          "title": "Model",
+          "type": "string"
+        },
+        "parameters": {
+          "additionalProperties": true,
+          "title": "Parameters",
+          "type": "object"
+        }
+      },
+      "required": [
+        "provider",
+        "model"
+      ],
+      "title": "ModelConfiguration",
+      "type": "object"
+    },
+    "ToolConfiguration": {
+      "description": "Tool configuration at checkpoint time.",
+      "properties": {
+        "tool_name": {
+          "title": "Tool Name",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        },
+        "sandbox_mode": {
+          "title": "Sandbox Mode",
+          "type": "string"
+        },
+        "parameters": {
+          "additionalProperties": true,
+          "title": "Parameters",
+          "type": "object"
+        }
+      },
+      "required": [
+        "tool_name",
+        "version",
+        "sandbox_mode"
+      ],
+      "title": "ToolConfiguration",
+      "type": "object"
+    },
+    "WorkflowStatus": {
+      "description": "Workflow-level state machine states (Section 10).",
+      "enum": [
+        "created",
+        "compiled",
+        "planned",
+        "running",
+        "paused",
+        "recovering",
+        "completed",
+        "failed",
+        "cancelled"
+      ],
+      "title": "WorkflowStatus",
+      "type": "string"
+    }
+  },
+  "description": "Workflow checkpoint capturing full state for recovery (Section 6.9).",
+  "properties": {
+    "checkpoint_id": {
+      "format": "uuid",
+      "title": "Checkpoint Id",
+      "type": "string"
+    },
+    "workflow_id": {
+      "format": "uuid",
+      "title": "Workflow Id",
+      "type": "string"
+    },
+    "sequence": {
+      "description": "Checkpoint sequence number",
+      "minimum": 0,
+      "title": "Sequence",
+      "type": "integer"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "git_commit": {
+      "description": "Git commit SHA at checkpoint time",
+      "title": "Git Commit",
+      "type": "string"
+    },
+    "git_branch": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Git Branch"
+    },
+    "workflow_status": {
+      "$ref": "#/$defs/WorkflowStatus"
+    },
+    "active_plan_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Active Plan Id"
+    },
+    "active_plan_version": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Active Plan Version"
+    },
+    "task_states": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "task_id -> TaskStatus mapping at checkpoint time",
+      "title": "Task States",
+      "type": "object"
+    },
+    "last_event_sequence": {
+      "default": 0,
+      "title": "Last Event Sequence",
+      "type": "integer"
+    },
+    "last_event_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Last Event Hash"
+    },
+    "tokens_used": {
+      "default": 0,
+      "title": "Tokens Used",
+      "type": "integer"
+    },
+    "model_calls": {
+      "default": 0,
+      "title": "Model Calls",
+      "type": "integer"
+    },
+    "tool_calls": {
+      "default": 0,
+      "title": "Tool Calls",
+      "type": "integer"
+    },
+    "estimated_cost": {
+      "default": 0.0,
+      "title": "Estimated Cost",
+      "type": "number"
+    },
+    "budget_remaining": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Budget Remaining"
+    },
+    "artifact_refs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Artifact Refs",
+      "type": "array"
+    },
+    "model_response_refs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Model Response Refs",
+      "type": "array"
+    },
+    "model_configuration": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ModelConfiguration"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "tool_configs": {
+      "items": {
+        "$ref": "#/$defs/ToolConfiguration"
+      },
+      "title": "Tool Configs",
+      "type": "array"
+    },
+    "payload_hash": {
+      "default": "",
+      "title": "Payload Hash",
+      "type": "string"
+    },
+    "checksum": {
+      "default": "",
+      "title": "Checksum",
+      "type": "string"
+    },
+    "metadata": {
+      "additionalProperties": true,
+      "title": "Metadata",
+      "type": "object"
+    }
+  },
+  "required": [
+    "workflow_id",
+    "sequence",
+    "git_commit",
+    "workflow_status"
+  ],
+  "title": "Checkpoint",
+  "type": "object"
+}

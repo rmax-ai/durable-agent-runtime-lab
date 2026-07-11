@@ -1,0 +1,128 @@
+{
+  "$defs": {
+    "CheckResult": {
+      "description": "Result of a single verification check.",
+      "properties": {
+        "check_name": {
+          "title": "Check Name",
+          "type": "string"
+        },
+        "passed": {
+          "title": "Passed",
+          "type": "boolean"
+        },
+        "detail": {
+          "default": "",
+          "title": "Detail",
+          "type": "string"
+        },
+        "check_type": {
+          "default": "deterministic",
+          "title": "Check Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "check_name",
+        "passed"
+      ],
+      "title": "CheckResult",
+      "type": "object"
+    },
+    "EvidenceReference": {
+      "description": "Reference to verification evidence.",
+      "properties": {
+        "reference_type": {
+          "title": "Reference Type",
+          "type": "string"
+        },
+        "reference_id": {
+          "title": "Reference Id",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reference_type",
+        "reference_id"
+      ],
+      "title": "EvidenceReference",
+      "type": "object"
+    }
+  },
+  "description": "Result of proposal verification (Section 9.5).",
+  "properties": {
+    "verification_id": {
+      "format": "uuid",
+      "title": "Verification Id",
+      "type": "string"
+    },
+    "proposal_id": {
+      "format": "uuid",
+      "title": "Proposal Id",
+      "type": "string"
+    },
+    "passed": {
+      "title": "Passed",
+      "type": "boolean"
+    },
+    "checks": {
+      "items": {
+        "$ref": "#/$defs/CheckResult"
+      },
+      "title": "Checks",
+      "type": "array"
+    },
+    "rejection_code": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Rejection Code"
+    },
+    "rejection_message": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Rejection Message"
+    },
+    "evidence": {
+      "items": {
+        "$ref": "#/$defs/EvidenceReference"
+      },
+      "title": "Evidence",
+      "type": "array"
+    },
+    "verified_at": {
+      "format": "date-time",
+      "title": "Verified At",
+      "type": "string"
+    },
+    "verified_by": {
+      "default": "deterministic",
+      "title": "Verified By",
+      "type": "string"
+    }
+  },
+  "required": [
+    "proposal_id",
+    "passed"
+  ],
+  "title": "VerificationResult",
+  "type": "object"
+}

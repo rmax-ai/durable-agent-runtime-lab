@@ -1,0 +1,148 @@
+{
+  "$defs": {
+    "EventType": {
+      "description": "All supported event types (Section 11).",
+      "enum": [
+        "workflow_created",
+        "goal_compiled",
+        "goal_rejected",
+        "plan_proposed",
+        "plan_validated",
+        "plan_rejected",
+        "plan_version_created",
+        "task_ready",
+        "task_claimed",
+        "action_proposed",
+        "action_verification_passed",
+        "action_verification_failed",
+        "action_execution_started",
+        "action_execution_succeeded",
+        "action_execution_failed",
+        "postcondition_passed",
+        "postcondition_failed",
+        "action_committed",
+        "action_rejected",
+        "checkpoint_created",
+        "rollback_started",
+        "rollback_completed",
+        "recovery_started",
+        "recovery_completed",
+        "human_approval_requested",
+        "human_approval_received",
+        "budget_threshold_reached",
+        "workflow_completed",
+        "workflow_failed"
+      ],
+      "title": "EventType",
+      "type": "string"
+    }
+  },
+  "description": "Immutable event in the append-only ledger (Section 9.7).\n\nEvents form a hash-chained, append-only log. Each event references its\npredecessor by hash, providing tamper-evident integrity.",
+  "properties": {
+    "sequence": {
+      "description": "Monotonic sequence number",
+      "minimum": 0,
+      "title": "Sequence",
+      "type": "integer"
+    },
+    "event_id": {
+      "format": "uuid",
+      "title": "Event Id",
+      "type": "string"
+    },
+    "workflow_id": {
+      "format": "uuid",
+      "title": "Workflow Id",
+      "type": "string"
+    },
+    "task_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Task Id"
+    },
+    "event_type": {
+      "$ref": "#/$defs/EventType"
+    },
+    "actor_id": {
+      "description": "Actor that produced this event",
+      "title": "Actor Id",
+      "type": "string"
+    },
+    "timestamp": {
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "causation_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Event that directly caused this one",
+      "title": "Causation Id"
+    },
+    "correlation_id": {
+      "description": "Groups related events across causations",
+      "format": "uuid",
+      "title": "Correlation Id",
+      "type": "string"
+    },
+    "payload": {
+      "additionalProperties": true,
+      "title": "Payload",
+      "type": "object"
+    },
+    "payload_hash": {
+      "default": "",
+      "description": "SHA-256 of serialized payload",
+      "title": "Payload Hash",
+      "type": "string"
+    },
+    "previous_event_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "SHA-256 of previous event",
+      "title": "Previous Event Hash"
+    },
+    "event_hash": {
+      "default": "",
+      "description": "SHA-256 of this event (payload + metadata)",
+      "title": "Event Hash",
+      "type": "string"
+    },
+    "metadata": {
+      "additionalProperties": true,
+      "title": "Metadata",
+      "type": "object"
+    }
+  },
+  "required": [
+    "sequence",
+    "workflow_id",
+    "event_type",
+    "actor_id"
+  ],
+  "title": "Event",
+  "type": "object"
+}

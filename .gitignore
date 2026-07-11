@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Direnv
+.envrc
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.coverage.*
+
+# Type checking
+.mypy_cache/
+
+# Linting
+.ruff_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project artifacts
+experiments/runs/*
+experiments/reports/*
+benchmarks/repositories/*
+!benchmarks/repositories/.gitkeep
+
+# Leave run dirs but not contents
+!experiments/runs/.gitkeep
+!experiments/reports/.gitkeep
+!experiments/configs/.gitkeep

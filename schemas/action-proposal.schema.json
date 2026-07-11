@@ -1,0 +1,124 @@
+{
+  "$defs": {
+    "Assertion": {
+      "description": "A precondition or postcondition assertion.",
+      "properties": {
+        "assertion_id": {
+          "format": "uuid",
+          "title": "Assertion Id",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "assertion_type": {
+          "title": "Assertion Type",
+          "type": "string"
+        },
+        "parameters": {
+          "additionalProperties": true,
+          "title": "Parameters",
+          "type": "object"
+        }
+      },
+      "required": [
+        "description",
+        "assertion_type"
+      ],
+      "title": "Assertion",
+      "type": "object"
+    },
+    "RiskLevel": {
+      "description": "Risk classification for goals, tasks, tool calls, and actions.",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ],
+      "title": "RiskLevel",
+      "type": "string"
+    }
+  },
+  "description": "A model-proposed action before verification (Section 9.4).",
+  "properties": {
+    "proposal_id": {
+      "format": "uuid",
+      "title": "Proposal Id",
+      "type": "string"
+    },
+    "workflow_id": {
+      "format": "uuid",
+      "title": "Workflow Id",
+      "type": "string"
+    },
+    "task_id": {
+      "format": "uuid",
+      "title": "Task Id",
+      "type": "string"
+    },
+    "actor_id": {
+      "description": "Model or agent proposing the action",
+      "title": "Actor Id",
+      "type": "string"
+    },
+    "tool_name": {
+      "title": "Tool Name",
+      "type": "string"
+    },
+    "arguments": {
+      "additionalProperties": true,
+      "title": "Arguments",
+      "type": "object"
+    },
+    "intention": {
+      "description": "Human-readable description of what this action intends to do",
+      "title": "Intention",
+      "type": "string"
+    },
+    "expected_effects": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Expected Effects",
+      "type": "array"
+    },
+    "expected_postconditions": {
+      "items": {
+        "$ref": "#/$defs/Assertion"
+      },
+      "title": "Expected Postconditions",
+      "type": "array"
+    },
+    "idempotency_key": {
+      "description": "Unique key for deduplication",
+      "title": "Idempotency Key",
+      "type": "string"
+    },
+    "risk_level": {
+      "$ref": "#/$defs/RiskLevel",
+      "default": "low"
+    },
+    "requested_at": {
+      "format": "date-time",
+      "title": "Requested At",
+      "type": "string"
+    },
+    "metadata": {
+      "additionalProperties": true,
+      "title": "Metadata",
+      "type": "object"
+    }
+  },
+  "required": [
+    "workflow_id",
+    "task_id",
+    "actor_id",
+    "tool_name",
+    "intention",
+    "idempotency_key"
+  ],
+  "title": "ActionProposal",
+  "type": "object"
+}

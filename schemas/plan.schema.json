@@ -1,0 +1,301 @@
+{
+  "$defs": {
+    "Assertion": {
+      "description": "A precondition or postcondition assertion.",
+      "properties": {
+        "assertion_id": {
+          "format": "uuid",
+          "title": "Assertion Id",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "assertion_type": {
+          "title": "Assertion Type",
+          "type": "string"
+        },
+        "parameters": {
+          "additionalProperties": true,
+          "title": "Parameters",
+          "type": "object"
+        }
+      },
+      "required": [
+        "description",
+        "assertion_type"
+      ],
+      "title": "Assertion",
+      "type": "object"
+    },
+    "ModelReference": {
+      "description": "Reference to a model that produced output.",
+      "properties": {
+        "provider": {
+          "title": "Provider",
+          "type": "string"
+        },
+        "model": {
+          "title": "Model",
+          "type": "string"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        },
+        "parameters": {
+          "additionalProperties": true,
+          "title": "Parameters",
+          "type": "object"
+        }
+      },
+      "required": [
+        "provider",
+        "model"
+      ],
+      "title": "ModelReference",
+      "type": "object"
+    },
+    "PlanStatus": {
+      "description": "Plan-level status.",
+      "enum": [
+        "draft",
+        "proposed",
+        "validated",
+        "rejected",
+        "active",
+        "superseded"
+      ],
+      "title": "PlanStatus",
+      "type": "string"
+    },
+    "RiskLevel": {
+      "description": "Risk classification for goals, tasks, tool calls, and actions.",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ],
+      "title": "RiskLevel",
+      "type": "string"
+    },
+    "Task": {
+      "description": "A single task within a plan DAG (Section 9.3).",
+      "properties": {
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "dependencies": {
+          "description": "Task IDs this task depends on",
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Dependencies",
+          "type": "array"
+        },
+        "status": {
+          "$ref": "#/$defs/TaskStatus",
+          "default": "pending"
+        },
+        "risk_level": {
+          "$ref": "#/$defs/RiskLevel",
+          "default": "medium"
+        },
+        "estimated_complexity": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Estimated Complexity",
+          "type": "integer"
+        },
+        "required_tools": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Tools",
+          "type": "array"
+        },
+        "preconditions": {
+          "items": {
+            "$ref": "#/$defs/Assertion"
+          },
+          "title": "Preconditions",
+          "type": "array"
+        },
+        "postconditions": {
+          "items": {
+            "$ref": "#/$defs/Assertion"
+          },
+          "title": "Postconditions",
+          "type": "array"
+        },
+        "max_attempts": {
+          "default": 3,
+          "minimum": 1,
+          "title": "Max Attempts",
+          "type": "integer"
+        },
+        "human_approval_required": {
+          "default": false,
+          "title": "Human Approval Required",
+          "type": "boolean"
+        },
+        "assigned_to": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Actor/model assigned to this task",
+          "title": "Assigned To"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        }
+      },
+      "required": [
+        "title",
+        "description"
+      ],
+      "title": "Task",
+      "type": "object"
+    },
+    "TaskStatus": {
+      "description": "Task-level state machine states (Section 10).",
+      "enum": [
+        "pending",
+        "ready",
+        "claimed",
+        "proposing",
+        "verifying",
+        "executing",
+        "post_verifying",
+        "committed",
+        "rejected",
+        "retry_wait",
+        "blocked",
+        "failed",
+        "cancelled"
+      ],
+      "title": "TaskStatus",
+      "type": "string"
+    }
+  },
+  "description": "Typed plan DAG (Section 9.2).",
+  "properties": {
+    "plan_id": {
+      "format": "uuid",
+      "title": "Plan Id",
+      "type": "string"
+    },
+    "goal_id": {
+      "format": "uuid",
+      "title": "Goal Id",
+      "type": "string"
+    },
+    "version": {
+      "default": 1,
+      "minimum": 1,
+      "title": "Version",
+      "type": "integer"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "tasks": {
+      "items": {
+        "$ref": "#/$defs/Task"
+      },
+      "title": "Tasks",
+      "type": "array"
+    },
+    "status": {
+      "$ref": "#/$defs/PlanStatus",
+      "default": "draft"
+    },
+    "planner_model": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ModelReference"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "assumptions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Assumptions",
+      "type": "array"
+    },
+    "superseded_by": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Plan ID that supersedes this one",
+      "title": "Superseded By"
+    },
+    "parent_plan_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Plan this was replanned from",
+      "title": "Parent Plan Id"
+    }
+  },
+  "required": [
+    "goal_id"
+  ],
+  "title": "Plan",
+  "type": "object"
+}

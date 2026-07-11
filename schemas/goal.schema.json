@@ -1,0 +1,284 @@
+{
+  "$defs": {
+    "ApprovalPolicy": {
+      "description": "Policy governing when human approval is required.",
+      "enum": [
+        "none",
+        "low_risk_only",
+        "medium_and_above",
+        "high_and_above",
+        "all_mutating"
+      ],
+      "title": "ApprovalPolicy",
+      "type": "string"
+    },
+    "Budget": {
+      "description": "Cost budget constraints for a workflow or task.",
+      "properties": {
+        "max_currency": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum estimated cost in currency units",
+          "title": "Max Currency"
+        },
+        "max_tokens": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum total tokens (input + output)",
+          "title": "Max Tokens"
+        },
+        "max_model_calls": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum model API calls",
+          "title": "Max Model Calls"
+        },
+        "max_tool_calls": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum tool executions",
+          "title": "Max Tool Calls"
+        },
+        "max_elapsed_seconds": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum wall-clock time",
+          "title": "Max Elapsed Seconds"
+        },
+        "max_retries": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum total retries across all tasks",
+          "title": "Max Retries"
+        }
+      },
+      "title": "Budget",
+      "type": "object"
+    },
+    "Constraint": {
+      "description": "A constraint on the goal or execution.",
+      "properties": {
+        "constraint_id": {
+          "format": "uuid",
+          "title": "Constraint Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "constraint_type": {
+          "title": "Constraint Type",
+          "type": "string"
+        },
+        "parameters": {
+          "additionalProperties": true,
+          "title": "Parameters",
+          "type": "object"
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "constraint_type"
+      ],
+      "title": "Constraint",
+      "type": "object"
+    },
+    "RiskLevel": {
+      "description": "Risk classification for goals, tasks, tool calls, and actions.",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ],
+      "title": "RiskLevel",
+      "type": "string"
+    },
+    "SuccessCriterion": {
+      "description": "A verifiable success criterion.",
+      "properties": {
+        "criterion_id": {
+          "format": "uuid",
+          "title": "Criterion Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "verification_method": {
+          "title": "Verification Method",
+          "type": "string"
+        },
+        "expected": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Expected value or pattern",
+          "title": "Expected"
+        },
+        "weight": {
+          "default": 1.0,
+          "minimum": 0.0,
+          "title": "Weight",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "verification_method"
+      ],
+      "title": "SuccessCriterion",
+      "type": "object"
+    }
+  },
+  "description": "Complete typed goal specification (Section 9.1).",
+  "properties": {
+    "goal_id": {
+      "format": "uuid",
+      "title": "Goal Id",
+      "type": "string"
+    },
+    "raw_goal": {
+      "description": "Original natural-language goal",
+      "title": "Raw Goal",
+      "type": "string"
+    },
+    "normalized_goal": {
+      "description": "Normalized and structured goal text",
+      "title": "Normalized Goal",
+      "type": "string"
+    },
+    "repository_path": {
+      "description": "Path to the target repository",
+      "title": "Repository Path",
+      "type": "string"
+    },
+    "constraints": {
+      "items": {
+        "$ref": "#/$defs/Constraint"
+      },
+      "title": "Constraints",
+      "type": "array"
+    },
+    "success_criteria": {
+      "items": {
+        "$ref": "#/$defs/SuccessCriterion"
+      },
+      "title": "Success Criteria",
+      "type": "array"
+    },
+    "forbidden_actions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Forbidden Actions",
+      "type": "array"
+    },
+    "available_tools": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Available Tools",
+      "type": "array"
+    },
+    "risk_level": {
+      "$ref": "#/$defs/RiskLevel",
+      "default": "medium"
+    },
+    "max_budget": {
+      "$ref": "#/$defs/Budget"
+    },
+    "human_approval_policy": {
+      "$ref": "#/$defs/ApprovalPolicy",
+      "default": "medium_and_above"
+    },
+    "metadata": {
+      "additionalProperties": true,
+      "title": "Metadata",
+      "type": "object"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "compiled_by": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Model or agent that compiled the goal",
+      "title": "Compiled By"
+    }
+  },
+  "required": [
+    "raw_goal",
+    "normalized_goal",
+    "repository_path"
+  ],
+  "title": "GoalSpecification",
+  "type": "object"
+}

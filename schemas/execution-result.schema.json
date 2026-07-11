@@ -1,0 +1,215 @@
+{
+  "$defs": {
+    "ExecutionStatus": {
+      "description": "Fine-grained execution result status.",
+      "enum": [
+        "succeeded",
+        "failed",
+        "timed_out",
+        "rejected_by_policy",
+        "rejected_by_schema",
+        "rejected_by_authorization",
+        "rejected_by_precondition",
+        "rejected_by_budget",
+        "rejected_by_idempotency",
+        "sandbox_violation"
+      ],
+      "title": "ExecutionStatus",
+      "type": "string"
+    },
+    "ResourceUsage": {
+      "description": "Resource consumption for an execution.",
+      "properties": {
+        "cpu_seconds": {
+          "default": 0.0,
+          "title": "Cpu Seconds",
+          "type": "number"
+        },
+        "memory_mb": {
+          "default": 0.0,
+          "title": "Memory Mb",
+          "type": "number"
+        },
+        "disk_read_bytes": {
+          "default": 0,
+          "title": "Disk Read Bytes",
+          "type": "integer"
+        },
+        "disk_write_bytes": {
+          "default": 0,
+          "title": "Disk Write Bytes",
+          "type": "integer"
+        },
+        "network_bytes": {
+          "default": 0,
+          "title": "Network Bytes",
+          "type": "integer"
+        }
+      },
+      "title": "ResourceUsage",
+      "type": "object"
+    },
+    "SideEffect": {
+      "description": "Recorded side effect of tool execution.",
+      "properties": {
+        "effect_type": {
+          "title": "Effect Type",
+          "type": "string"
+        },
+        "target": {
+          "title": "Target",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "before_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Before Hash"
+        },
+        "after_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "After Hash"
+        }
+      },
+      "required": [
+        "effect_type",
+        "target",
+        "description"
+      ],
+      "title": "SideEffect",
+      "type": "object"
+    }
+  },
+  "description": "Result of sandboxed tool execution (Section 9.6).",
+  "properties": {
+    "execution_id": {
+      "format": "uuid",
+      "title": "Execution Id",
+      "type": "string"
+    },
+    "proposal_id": {
+      "format": "uuid",
+      "title": "Proposal Id",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/ExecutionStatus",
+      "description": "Execution outcome"
+    },
+    "exit_code": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Exit Code"
+    },
+    "stdout_ref": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Artifact reference to stdout",
+      "title": "Stdout Ref"
+    },
+    "stderr_ref": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Artifact reference to stderr",
+      "title": "Stderr Ref"
+    },
+    "started_at": {
+      "format": "date-time",
+      "title": "Started At",
+      "type": "string"
+    },
+    "finished_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Finished At"
+    },
+    "resource_usage": {
+      "$ref": "#/$defs/ResourceUsage"
+    },
+    "workspace_diff_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "SHA-256 of workspace diff",
+      "title": "Workspace Diff Hash"
+    },
+    "side_effects": {
+      "items": {
+        "$ref": "#/$defs/SideEffect"
+      },
+      "title": "Side Effects",
+      "type": "array"
+    },
+    "error_message": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Error Message"
+    }
+  },
+  "required": [
+    "proposal_id",
+    "status"
+  ],
+  "title": "ExecutionResult",
+  "type": "object"
+}
