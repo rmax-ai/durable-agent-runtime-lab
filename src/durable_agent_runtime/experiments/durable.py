@@ -147,6 +147,13 @@ class DurableRuntime:
                 "failed": len(failed),
                 "blocked": len(blocked),
             },
+            # Backward-compat fields for single-task mode
+            "task_id": str(plan.tasks[0].task_id) if plan.tasks else "",
+            "output": (
+                list(results.values())[0].get("output", "")
+                if results
+                else ""
+            ),
         }
 
     # ── Helpers ─────────────────────────────────────────────────────────────
@@ -163,9 +170,12 @@ class DurableRuntime:
         )
 
     def _execute_task(self, wf_id: UUID, task_id: UUID, goal: GoalSpecification) -> dict:
-        """Execute one task through the proposal→verify→execute→commit cycle."""
-        # Transition: PENDING → READY → CLAIMED → PROPOSING
-        self.engine.transition_task(task_id, wf_id, TaskStatus.READY)
+        """Execute one task through the proposal→verify→execute→commit cycle.
+
+        NOTE: The task is expected to already be in READY state (the scheduler
+        promotes PENDING→READY before calling this method).
+        """
+        # Transition: READY → CLAIMED → PROPOSING
         self.engine.transition_task(task_id, wf_id, TaskStatus.CLAIMED)
         self.engine.transition_task(task_id, wf_id, TaskStatus.PROPOSING)
 

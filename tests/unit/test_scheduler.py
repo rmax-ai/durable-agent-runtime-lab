@@ -88,7 +88,8 @@ class TestChainDependency:
 
         # Promote A
         scheduler.promote_pending(wf_id, plan)
-        scheduler._transition_task(a, wf_id, TaskStatus.COMMITTED)
+        # Manually commit A (simulating full lifecycle)
+        engine.state.upsert_task(a, wf_id, TaskStatus.COMMITTED)
 
         promoted = scheduler.promote_pending(wf_id, plan)
         assert promoted == 1  # B
@@ -119,7 +120,7 @@ class TestChainDependency:
         assert ready == [a]
 
         # Commit A
-        scheduler._transition_task(a, wf_id, TaskStatus.COMMITTED)
+        engine.state.upsert_task(a, wf_id, TaskStatus.COMMITTED)
 
         # Step 2: B becomes ready
         assert scheduler.promote_pending(wf_id, plan) == 1
@@ -128,7 +129,7 @@ class TestChainDependency:
         assert a not in ready  # A is committed, not ready
 
         # Commit B
-        scheduler._transition_task(b, wf_id, TaskStatus.COMMITTED)
+        engine.state.upsert_task(b, wf_id, TaskStatus.COMMITTED)
 
         # Step 3: C becomes ready
         assert scheduler.promote_pending(wf_id, plan) == 1
@@ -136,7 +137,7 @@ class TestChainDependency:
         assert c in ready
 
         # Commit C
-        scheduler._transition_task(c, wf_id, TaskStatus.COMMITTED)
+        engine.state.upsert_task(c, wf_id, TaskStatus.COMMITTED)
 
         # Step 4: No more PENDING tasks
         assert scheduler.promote_pending(wf_id, plan) == 0
@@ -194,7 +195,7 @@ class TestDiamondDependency:
 
         # Promote and commit A
         scheduler.promote_pending(wf_id, plan)
-        scheduler._transition_task(a, wf_id, TaskStatus.COMMITTED)
+        engine.state.upsert_task(a, wf_id, TaskStatus.COMMITTED)
 
         assert scheduler.promote_pending(wf_id, plan) == 2  # B and C
         ready = scheduler.get_ready(wf_id, plan)
@@ -221,10 +222,10 @@ class TestDiamondDependency:
 
         # Promote and commit A, B, C
         scheduler.promote_pending(wf_id, plan)
-        scheduler._transition_task(a, wf_id, TaskStatus.COMMITTED)
+        engine.state.upsert_task(a, wf_id, TaskStatus.COMMITTED)
         scheduler.promote_pending(wf_id, plan)
-        scheduler._transition_task(b, wf_id, TaskStatus.COMMITTED)
-        scheduler._transition_task(c, wf_id, TaskStatus.COMMITTED)
+        engine.state.upsert_task(b, wf_id, TaskStatus.COMMITTED)
+        engine.state.upsert_task(c, wf_id, TaskStatus.COMMITTED)
 
         assert scheduler.promote_pending(wf_id, plan) == 1  # D
         ready = scheduler.get_ready(wf_id, plan)
@@ -249,9 +250,9 @@ class TestDiamondDependency:
 
         # Promote and commit A, then just B
         scheduler.promote_pending(wf_id, plan)
-        scheduler._transition_task(a, wf_id, TaskStatus.COMMITTED)
+        engine.state.upsert_task(a, wf_id, TaskStatus.COMMITTED)
         scheduler.promote_pending(wf_id, plan)
-        scheduler._transition_task(b, wf_id, TaskStatus.COMMITTED)
+        engine.state.upsert_task(b, wf_id, TaskStatus.COMMITTED)
         # C still PENDING
 
         assert scheduler.promote_pending(wf_id, plan) == 0  # D not ready
@@ -386,8 +387,8 @@ class TestFailedDependency:
 
         # Promote A
         scheduler.promote_pending(wf_id, plan)
-        # A fails
-        scheduler._transition_task(a, wf_id, TaskStatus.FAILED)
+        # A fails (simulate full lifecycle ending in FAILED)
+        engine.state.upsert_task(a, wf_id, TaskStatus.FAILED)
 
         # B should be BLOCKED now (failed dep)
         promoted = scheduler.promote_pending(wf_id, plan)
@@ -418,8 +419,8 @@ class TestFailedDependency:
         assert promoted == 2  # A and C
 
         # A fails, commit C
-        scheduler._transition_task(a, wf_id, TaskStatus.FAILED)
-        scheduler._transition_task(c, wf_id, TaskStatus.COMMITTED)
+        engine.state.upsert_task(a, wf_id, TaskStatus.FAILED)
+        engine.state.upsert_task(c, wf_id, TaskStatus.COMMITTED)
 
         # B should be BLOCKED (A failed)
         promoted = scheduler.promote_pending(wf_id, plan)

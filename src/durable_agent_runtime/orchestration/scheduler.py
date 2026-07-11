@@ -40,7 +40,8 @@ class TaskScheduler:
     def promote_pending(self, workflow_id: UUID, plan: Plan) -> int:
         """Transition PENDING → READY for tasks whose dependencies are all COMMITTED.
 
-        Also transitions tasks to BLOCKED when a dependency is FAILED.
+        Also transitions PENDING → READY → BLOCKED for tasks whose deps are FAILED
+        (via the valid READY → BLOCKED transition in the state machine).
 
         Returns the count of tasks promoted to READY.
         """
@@ -57,6 +58,8 @@ class TaskScheduler:
                 self._transition_task(task.task_id, workflow_id, TaskStatus.READY)
                 promoted += 1
             elif self._has_failed_dep(task, self.state):
+                # PENDING→READY (valid) → BLOCKED (valid from READY)
+                self._transition_task(task.task_id, workflow_id, TaskStatus.READY)
                 self._transition_task(task.task_id, workflow_id, TaskStatus.BLOCKED)
         return promoted
 
