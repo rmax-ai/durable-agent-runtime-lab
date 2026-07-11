@@ -50,10 +50,21 @@ All 9 milestones implemented. 221 tests passing.
 # Install
 uv sync --extra dev
 
-# Run tests (155 pass)
+# Run tests
 uv run pytest
 
-# CLI
+# Self-contained quickstart (mock provider)
+uv run dar experiment run --config experiments/configs/quickstart.yaml
+
+# OpenAI-backed quickstart (reads OPENAI_API_KEY from .env)
+set -a
+source .env
+set +a
+UV_CACHE_DIR=.uv-cache uv run dar experiment run \
+  --config experiments/configs/quickstart.yaml \
+  --provider openai
+
+# CLI helpers
 uv run dar version
 uv run dar init
 uv run dar --help
@@ -72,6 +83,13 @@ uv run dar experiment report
 
 For a real model-backed run, the experiment config can declare the provider and model. The CLI accepts overrides with precedence `CLI flag > config file > provider default`.
 
+Current OpenAI defaults:
+- Provider: `openai`
+- Model: `gpt-5.4-mini`
+- Structured output: JSON Schema with strict validation
+
+If you are using a repo-local `.env`, `UV_CACHE_DIR=.uv-cache` keeps `uv` cache access inside the workspace.
+
 ```bash
 export OPENAI_API_KEY=...
 uv run dar experiment run --config experiments/configs/core.yaml
@@ -80,7 +98,7 @@ uv run dar experiment run --config experiments/configs/core.yaml
 uv run dar experiment run \
   --config experiments/configs/core.yaml \
   --provider openai \
-  --model gpt-4o-mini
+  --model gpt-5.4-mini
 ```
 
 If you want the equivalent Python API example, this script creates an isolated workspace, copies in a checked-in fixture repository, and runs both runtimes with a deterministic mock provider:
@@ -129,7 +147,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
 
 ```bash
 # All tests
-uv run pytest                     # 221 tests
+uv run pytest
 
 # By category
 uv run pytest tests/unit/         # Domain models, state machine, event store
@@ -154,7 +172,7 @@ See [docs/adr/](docs/adr/) for detailed decisions:
 
 ## Known Limitations
 
-- OpenAI provider is wired, but live runs depend on local credentials and current API compatibility
+- OpenAI provider is wired and the quickstart experiment succeeds with `gpt-5.4-mini`, but live runs still depend on local credentials and upstream API behavior
 - Docker executor not yet integrated (process executor only)
 - Single-task-per-workflow in CLI; multi-task DAG not yet scheduled
 - Human approval CLI stubs exist but approval flow not implemented
