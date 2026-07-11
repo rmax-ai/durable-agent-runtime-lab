@@ -39,6 +39,7 @@ class OpenAIProvider:
         transport: httpx.AsyncBaseTransport | None = None,
         timeout: float = 120.0,
     ) -> None:
+        self.name = "openai"
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
         if not self.api_key:
             raise ValueError("OPENAI_API_KEY must be provided or set in the environment")

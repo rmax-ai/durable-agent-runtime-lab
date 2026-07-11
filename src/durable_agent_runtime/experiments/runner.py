@@ -36,6 +36,18 @@ class ExperimentRunner:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self._provider = provider
 
+    def _provider_metadata(self) -> dict[str, str]:
+        """Return provider metadata to persist with experiment results."""
+        if self._provider is None:
+            return {"provider": "mock", "model": "mock/v1"}
+
+        provider_name = str(getattr(self._provider, "name", "")).strip()
+        if not provider_name:
+            provider_name = type(self._provider).__name__.removesuffix("Provider").lower()
+
+        model_name = str(getattr(self._provider, "model", "")).strip() or "unknown"
+        return {"provider": provider_name or "unknown", "model": model_name}
+
     def run_comparison(
         self,
         goal: GoalSpecification,
@@ -52,6 +64,7 @@ class ExperimentRunner:
             "timestamp": datetime.now(UTC).isoformat(),
             "goal": goal.raw_goal,
             "goal_id": str(goal.goal_id),
+            **self._provider_metadata(),
         }
 
         # Build fault config if provided

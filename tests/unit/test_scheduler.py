@@ -467,3 +467,24 @@ class TestEdgeCases:
         assert scheduler.promote_pending(wf_id, plan) == 3
         ready = scheduler.get_ready(wf_id, plan)
         assert len(ready) == 3
+
+
+class TestRetryWaitRequeue:
+    def test_retry_wait_tasks_are_requeued(
+        self, engine: OrchestratorEngine, scheduler: TaskScheduler, goal_id: UUID
+    ) -> None:
+        """Tasks in RETRY_WAIT should be promoted back to READY."""
+        wf_id = engine.create_workflow(goal_id, "/tmp/test")
+        task_id = uuid.uuid4()
+        plan = _make_plan(
+            goal_id,
+            [Task(task_id=task_id, title="Retry", description="Retry task", dependencies=[])],
+        )
+        _register_and_setup(engine, wf_id, plan)
+        engine.state.upsert_task(task_id, wf_id, TaskStatus.RETRY_WAIT)
+
+        requeued = scheduler.requeue_retry_wait(wf_id)
+
+        assert requeued == 1
+        ready = scheduler.get_ready(wf_id, plan)
+        assert ready == [task_id]

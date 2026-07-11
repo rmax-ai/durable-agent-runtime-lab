@@ -63,6 +63,17 @@ class TaskScheduler:
                 self._transition_task(task.task_id, workflow_id, TaskStatus.BLOCKED)
         return promoted
 
+    def requeue_retry_wait(self, workflow_id: UUID) -> int:
+        """Transition RETRY_WAIT → READY for tasks awaiting another attempt."""
+        requeued = 0
+        all_tasks = self.state.get_tasks_by_workflow(workflow_id)
+        for row in all_tasks:
+            if TaskStatus(row.status) != TaskStatus.RETRY_WAIT:
+                continue
+            self._transition_task(UUID(row.task_id), workflow_id, TaskStatus.READY)
+            requeued += 1
+        return requeued
+
     # ── Dependency checks ───────────────────────────────────────────────────
 
     def _are_deps_satisfied(self, task: Task, state: StateStore) -> bool:

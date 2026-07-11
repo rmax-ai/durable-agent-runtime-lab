@@ -157,17 +157,112 @@ class TestBaselineRuntimeE2E:
             assert result["tool_calls"] == 0
             assert result["error"] == "Model proposal failed: upstream rejected request"
 
+    def test_baseline_requires_terminal_success(self) -> None:
+        from durable_agent_runtime.experiments.baseline import BaselineRuntime
 
-class TestExperimentRunner:
-    def test_comparison_runs_both_runtimes(self) -> None:
-        from durable_agent_runtime.experiments.runner import ExperimentRunner
+        class NonTerminalProvider:
+            def __init__(self) -> None:
+                self.call_count = 0
+
+            async def generate_structured(self, request, response_model):
+                self.call_count += 1
+                return type(
+                    "Resp",
+                    (),
+                    {
+                        "content": {
+                            "tool_name": "run_command",
+                            "command": "echo still-working",
+                            "intention": "Keep investigating",
+                            "risk_level": "low",
+                            "expected_effects": [],
+                            "is_terminal": False,
+                        }
+                    },
+                )()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace = Path(tmpdir) / "workspace"
+            workspace.mkdir()
+
+            provider = NonTerminalProvider()
+            runtime = BaselineRuntime(workspace, provider=provider)
+            goal = GoalSpecification(
+                raw_goal="Need more than one step",
+                normalized_goal="Do not stop after first successful command",
+                repository_path=str(workspace),
+            )
+            result = runtime.run_goal(goal)
+
+            assert result["success"] is False
+            assert result["tool_calls"] == 5
+
+
+class TestDurableRuntimeRetryBehavior:
+    def test_retry_wait_tasks_are_retried(self) -> None:
+        class FlakyProvider:
+            def __init__(self) -> None:
+                self.call_count = 0
+
+            async def generate_structured(self, request, response_model):
+                self.call_count += 1
+                command = "false" if self.call_count == 1 else "echo done"
+                return type(
+                    "Resp",
+                    (),
+                    {
+                        "content": {
+                            "tool_name": "run_command",
+                            "command": command,
+                            "intention": "Retry until success",
+                            "risk_level": "low",
+                            "expected_effects": [],
+                            "is_terminal": True,
+                        }
+                    },
+                )()
 
         with tempfile.TemporaryDirectory() as tmpdir:
             data_dir = Path(tmpdir) / "data"
             workspace = Path(tmpdir) / "workspace"
             workspace.mkdir()
 
-            runner = ExperimentRunner(data_dir, workspace)
+            runtime = DurableRuntime(data_dir, workspace, provider=FlakyProvider())
+            goal = GoalSpecification(
+                raw_goal="Retry once",
+                normalized_goal="Retry after a failed command",
+                repository_path=str(workspace),
+            )
+            result = runtime.run_goal(goal)
+
+            assert result["success"] is True
+            assert result["task_summary"]["committed"] == 1
+
+
+class TestExperimentRunner:
+    def test_comparison_runs_both_runtimes(self) -> None:
+        from durable_agent_runtime.experiments.runner import ExperimentRunner
+        from durable_agent_runtime.models.base import MockProvider
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir) / "data"
+            workspace = Path(tmpdir) / "workspace"
+            workspace.mkdir()
+
+            provider = MockProvider()
+            provider.set_fixture(
+                "Run comparison",
+                {
+                    "tool_name": "run_command",
+                    "command": "echo comparison complete",
+                    "intention": "Complete the comparison task",
+                    "risk_level": "low",
+                    "expected_effects": ["prints completion message"],
+                    "is_terminal": True,
+                },
+            )
+
+            runner = ExperimentRunner(data_dir, workspace, provider=provider)
             goal = GoalSpecification(
                 raw_goal="Compare runtimes",
                 normalized_goal="Run comparison",
@@ -177,6 +272,8 @@ class TestExperimentRunner:
             results = runner.run_comparison(goal)
             assert results["baseline"]["success"] is True
             assert results["durable"]["success"] is True
+            assert results["provider"] == "mock"
+            assert results["model"] == "mock/v1"
             assert "metrics" in results
             assert "speedup" in results["metrics"]
 

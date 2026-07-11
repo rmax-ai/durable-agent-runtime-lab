@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import os
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -152,3 +154,60 @@ def test_cmd_experiment_run_uses_config_provider(monkeypatch, tmp_path: Path) ->
     assert provider.model == "gpt-4o-mini"
     assert provider.api_key == "env-key"
     assert str(captured["workspace"]).endswith("data/runs/task-01/repeat-1/repo")
+
+
+def test_experiment_report_picks_latest_report_by_mtime(monkeypatch, tmp_path: Path) -> None:
+    reports_dir = tmp_path / "data" / "reports"
+    reports_dir.mkdir(parents=True)
+
+    older = reports_dir / "experiment-zzzz0000.json"
+    newer = reports_dir / "experiment-00000001.json"
+
+    older.write_text(json.dumps({"experiment_id": "zzzz0000", "timestamp": "older"}))
+    newer.write_text(json.dumps({"experiment_id": "00000001", "timestamp": "newer"}))
+
+    os.utime(older, (100, 100))
+    os.utime(newer, (200, 200))
+
+    monkeypatch.setattr(cli, "_get_data_dir", lambda: tmp_path / "data")
+
+    result = runner.invoke(app, ["experiment", "report"])
+
+    assert result.exit_code == 0
+    assert f"Using latest report: {newer}" in result.stdout
+    assert "# Experiment Report: 00000001" in result.stdout
+
+
+def test_experiment_report_renders_provider_and_model(monkeypatch, tmp_path: Path) -> None:
+    reports_dir = tmp_path / "data" / "reports"
+    reports_dir.mkdir(parents=True)
+
+    report_path = reports_dir / "experiment-35c937f1.json"
+    report_path.write_text(
+        json.dumps(
+            {
+                "experiment_id": "35c937f1",
+                "timestamp": "2026-07-12T10:00:00Z",
+                "goal": "Quickstart",
+                "provider": "openai",
+                "model": "gpt-5.4-mini",
+                "baseline": {"wall_clock_time": 1.2},
+                "durable": {"wall_clock_time": 1.4, "model_calls": 1},
+                "metrics": {
+                    "baseline_success": True,
+                    "durable_success": True,
+                    "baseline_model_calls": 1,
+                    "speedup": 0.86,
+                },
+            }
+        )
+    )
+
+    monkeypatch.setattr(cli, "_get_data_dir", lambda: tmp_path / "data")
+
+    result = runner.invoke(app, ["experiment", "report"])
+
+    assert result.exit_code == 0
+    assert "- **Provider:** openai" in result.stdout
+    assert "- **Model:** gpt-5.4-mini" in result.stdout
+    assert "live inference behavior" in result.stdout

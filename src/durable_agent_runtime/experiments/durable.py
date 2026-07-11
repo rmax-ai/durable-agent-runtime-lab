@@ -108,9 +108,10 @@ class DurableRuntime:
 
             # Promote tasks whose deps are now satisfied
             promoted = self.scheduler.promote_pending(wf_id, plan)
+            retried = self.scheduler.requeue_retry_wait(wf_id)
             ready = self.scheduler.get_ready(wf_id, plan)
 
-            if not ready and promoted == 0:
+            if not ready and promoted == 0 and retried == 0:
                 # No progress — check if we're done or stuck
                 break
 

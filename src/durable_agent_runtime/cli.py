@@ -591,13 +591,11 @@ def _cmd_experiment_report(experiment_id: str, output_format: str) -> None:
                 )
                 raise typer.Exit(1) from None
     else:
-        # Load all reports and merge
-        json_files = sorted(reports_dir.glob("experiment-*.json"))
+        json_files = list(reports_dir.glob("experiment-*.json"))
         if not json_files:
             typer.echo("No experiment reports found in data/reports/", err=True)
             raise typer.Exit(1) from None
-        # Use the latest report
-        report_path = json_files[-1]
+        report_path = max(json_files, key=lambda path: (path.stat().st_mtime, path.name))
         typer.echo(f"Using latest report: {report_path}")
 
     with open(report_path) as f:
@@ -617,6 +615,9 @@ def _cmd_experiment_report(experiment_id: str, output_format: str) -> None:
     metrics = results.get("metrics", {})
     faults_configured = results.get("faults_configured", 0)
     faults_triggered = results.get("faults_triggered", [])
+    provider_name = str(results.get("provider", "")).strip() or "unknown (not recorded)"
+    model_name = str(results.get("model", "")).strip() or "unknown (not recorded)"
+    is_mock_provider = provider_name == "mock"
 
     output = []
     output.append(f"# Experiment Report: {exp_id}")
@@ -637,7 +638,8 @@ def _cmd_experiment_report(experiment_id: str, output_format: str) -> None:
     output.append("")
     output.append(f"- **Goal:** {goal}")
     output.append(f"- **Experiment ID:** {exp_id}")
-    output.append("- **Provider:** MockProvider (deterministic)")
+    output.append(f"- **Provider:** {provider_name}")
+    output.append(f"- **Model:** {model_name}")
     output.append("")
     output.append("## Results")
     output.append("")
@@ -672,14 +674,25 @@ def _cmd_experiment_report(experiment_id: str, output_format: str) -> None:
     output.append("")
     output.append("## Cost Analysis")
     output.append("")
-    output.append(
-        "With MockProvider, actual API costs are not incurred. "
-        "Token estimates are based on simulated usage."
-    )
+    if is_mock_provider:
+        output.append(
+            "With MockProvider, actual API costs are not incurred. "
+            "Token estimates are based on simulated usage."
+        )
+    else:
+        output.append(
+            "This run used a real model provider. Any token counts, latency, and costs reflect "
+            "live inference behavior captured during the experiment."
+        )
     output.append("")
     output.append("## Limitations")
     output.append("")
-    output.append("- Results are from MockProvider, not real model inference.")
+    if is_mock_provider:
+        output.append("- Results are from MockProvider, not real model inference.")
+    elif provider_name == "unknown (not recorded)":
+        output.append("- Provider metadata was not recorded in this report.")
+    else:
+        output.append("- Single-run behavior may vary across repeated live model executions.")
     output.append("- Single-run data — no statistical significance claimed.")
     output.append("- Fault injection is deterministic; real-world failures are stochastic.")
     output.append("")

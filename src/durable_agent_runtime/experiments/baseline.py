@@ -111,7 +111,7 @@ class BaselineRuntime:
             result_output = result.output
 
             # ── Decide whether to continue ──────────────────────────────────
-            if result.success and (is_terminal or iteration >= 0):
+            if result.success and is_terminal:
                 final_success = True
                 break
 
