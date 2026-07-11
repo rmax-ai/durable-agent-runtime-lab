@@ -64,7 +64,10 @@ class BaselineRuntime:
 
             model_call_count += 1
             try:
-                proposal = asyncio.run(self._propose_action(wf_id, goal, conversation, step_number))
+                with asyncio.Runner() as runner:
+                    proposal = runner.run(
+                        self._propose_action(wf_id, goal, conversation, step_number)
+                    )
             except (TimeoutError, Exception):
                 # Skip this iteration on model failure, try again
                 continue

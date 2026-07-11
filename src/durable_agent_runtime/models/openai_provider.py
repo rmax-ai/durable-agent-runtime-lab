@@ -34,15 +34,22 @@ class OpenAIProvider:
             raise ValueError("OPENAI_API_KEY must be provided or set in the environment")
         self.base_url = base_url.rstrip("/")
         self.model = model
-        self._client = client or httpx.AsyncClient(timeout=120.0)
+        self._client = client  # Only set when injected (for MockTransport tests)
 
     async def generate_structured(
         self,
         request: ModelRequest,
         response_model: type[BaseModel],
     ) -> ModelResponse:
-        """Send a chat completion request with structured output."""
+        """Send a chat completion request with structured output.
+
+        Uses synchronous ``httpx.Client`` internally to avoid asyncio
+        event-loop lifecycle issues when called from mixed sync/async contexts.
+        """
+        import httpx as sync_httpx
+
         schema_json = response_model.model_json_schema()
+        _add_strict_properties(schema_json)
         json_schema = {
             "name": response_model.__name__,
             "schema": schema_json,
@@ -65,16 +72,31 @@ class OpenAIProvider:
             "temperature": request.temperature,
         }
 
-        resp = await self._client.post(
-            f"{self.base_url}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-            },
-            json=body,
-        )
-        resp.raise_for_status()
-        data = resp.json()
+        # Use injected client (for MockTransport in tests) when available.
+        # Otherwise use synchronous Client to avoid event-loop lifecycle issues.
+        if self._client is not None:
+            resp = await self._client.post(
+                f"{self.base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=body,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        else:
+            with sync_httpx.Client(timeout=120.0) as client:
+                resp = client.post(
+                    f"{self.base_url}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=body,
+                )
+                resp.raise_for_status()
+                data = resp.json()
 
         choice = data["choices"][0]
         message = choice["message"]
@@ -102,3 +124,33 @@ class OpenAIProvider:
             provider="openai",
             finish_reason=finish_reason,
         )
+
+
+# ── Schema helpers ─────────────────────────────────────────────────────────
+
+
+def _add_strict_properties(schema: dict[str, Any]) -> None:
+    """Recursively add ``additionalProperties: false`` and fix ``required`` for OpenAI strict mode.
+
+    OpenAI strict mode requires:
+    1. ``additionalProperties: false`` on every object
+    2. ``required`` must list ALL property keys (not just non-default ones)
+    """
+    if schema.get("type") == "object":
+        schema["additionalProperties"] = False
+        # OpenAI strict: required must include every property
+        props = schema.get("properties", {})
+        if props:
+            schema["required"] = list(props.keys())
+    for value in schema.values():
+        if isinstance(value, dict):
+            _add_strict_properties(value)
+        elif isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict):
+                    _add_strict_properties(item)
+    defs = schema.get("$defs")
+    if isinstance(defs, dict):
+        for def_schema in defs.values():
+            if isinstance(def_schema, dict):
+                _add_strict_properties(def_schema)

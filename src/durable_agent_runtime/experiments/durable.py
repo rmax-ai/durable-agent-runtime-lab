@@ -273,9 +273,10 @@ class DurableRuntime:
 
         # Ask the model to propose an action (run async inside sync context)
         try:
-            proposal = asyncio.run(self._propose_action(wf_id, task_id, goal))
+            with asyncio.Runner() as runner:
+                proposal = runner.run(self._propose_action(wf_id, task_id, goal))
         except (TimeoutError, Exception) as exc:
-            self.engine.transition_task(task_id, wf_id, TaskStatus.REJECTED)
+            self.engine.transition_task(task_id, wf_id, TaskStatus.FAILED)
             return {
                 "success": False,
                 "error": f"Model proposal failed: {exc}",
