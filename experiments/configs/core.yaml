@@ -1,5 +1,6 @@
 # DAR v0.2.0 — Baseline vs Durable Experiment Configuration
 # Per Section 22 (Fault Injection) and Phase 7 (Experiment Runs)
+# Requires OPENAI_API_KEY unless overridden with --provider mock.
 experiment:
   name: "DAR v0.2.0 — Baseline vs Durable"
   runtimes: [baseline, durable]
@@ -8,7 +9,7 @@ experiment:
     - benchmarks/tasks/task-02.yaml
   repeats: 3
   provider: openai
-  model: gpt-4o
+  model: gpt-5.4-mini
   faults:
     - type: process_kill
       trigger:

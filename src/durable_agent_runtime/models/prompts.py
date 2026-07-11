@@ -5,7 +5,9 @@ Converts GoalSpecification → model prompts for action proposal generation.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
 
 # ── Structured output model ──────────────────────────────────────────────
 
@@ -17,7 +19,9 @@ class ProposedAction(BaseModel):
     After validation, it is converted to a proper ``ActionProposal`` domain object.
     """
 
-    tool_name: str = Field(
+    model_config = ConfigDict(extra="forbid")
+
+    tool_name: Literal["run_command", "read_file", "write_file"] = Field(
         default="run_command",
         description=("Tool to invoke: run_command, read_file, write_file"),
     )
@@ -33,7 +37,7 @@ class ProposedAction(BaseModel):
         default="",
         description="Human-readable description of what this action intends to accomplish",
     )
-    risk_level: str = Field(
+    risk_level: Literal["low", "medium", "high", "critical"] = Field(
         default="low",
         description="Estimated risk: low, medium, high, critical",
     )

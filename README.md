@@ -61,18 +61,68 @@ uv run dar --help
 
 ## Running an Experiment
 
+The old `/tmp/workspace` and `/tmp/test-repo` snippet was incomplete: those paths were just placeholders and nothing created or populated them.
+
+For a self-contained run, use the checked-in quickstart config. It stages a benchmark fixture into `data/runs/...` automatically and writes reports to `data/reports/`.
+
+```bash
+uv run dar experiment run --config experiments/configs/quickstart.yaml
+uv run dar experiment report
+```
+
+For a real model-backed run, the experiment config can declare the provider and model. The CLI accepts overrides with precedence `CLI flag > config file > provider default`.
+
+```bash
+export OPENAI_API_KEY=...
+uv run dar experiment run --config experiments/configs/core.yaml
+
+# Override config on the command line
+uv run dar experiment run \
+  --config experiments/configs/core.yaml \
+  --provider openai \
+  --model gpt-4o-mini
+```
+
+If you want the equivalent Python API example, this script creates an isolated workspace, copies in a checked-in fixture repository, and runs both runtimes with a deterministic mock provider:
+
 ```python
+import shutil
+import tempfile
+from pathlib import Path
+
 from durable_agent_runtime.domain import GoalSpecification
 from durable_agent_runtime.experiments.runner import ExperimentRunner
+from durable_agent_runtime.models.base import MockProvider
 
-runner = ExperimentRunner(data_dir="data", workspace="/tmp/workspace")
-goal = GoalSpecification(
-    raw_goal="Fix the bug in auth.py",
-    normalized_goal="Locate and fix the authentication bug",
-    repository_path="/tmp/test-repo",
-)
-results = runner.run_comparison(goal)
-runner.save_report(results)
+fixture_repo = Path("benchmarks/repositories/task-01-refactor").resolve()
+
+with tempfile.TemporaryDirectory() as tmpdir:
+    workspace = Path(tmpdir) / "repo"
+    shutil.copytree(fixture_repo, workspace)
+
+    provider = MockProvider()
+    provider.set_fixture(
+        "Rename the function compute_tax",
+        {
+            "tool_name": "run_command",
+            "command": "python -m pytest tests/test_calculator.py -q",
+            "intention": "Run the fixture test suite inside the staged repository",
+            "risk_level": "low",
+            "expected_effects": ["executes the benchmark test"],
+            "is_terminal": True,
+        },
+    )
+
+    runner = ExperimentRunner(data_dir=Path("data"), workspace=workspace, provider=provider)
+    goal = GoalSpecification(
+        raw_goal="Run the task-01 benchmark smoke test",
+        normalized_goal="Rename the function compute_tax to calculate_tax",
+        repository_path=str(workspace),
+    )
+
+    results = runner.run_comparison(goal)
+    report_path = runner.save_report(results)
+    print(report_path)
 ```
 
 ## Testing
@@ -104,7 +154,7 @@ See [docs/adr/](docs/adr/) for detailed decisions:
 
 ## Known Limitations
 
-- Mock provider only — real model providers (OpenAI) not yet wired
+- OpenAI provider is wired, but live runs depend on local credentials and current API compatibility
 - Docker executor not yet integrated (process executor only)
 - Single-task-per-workflow in CLI; multi-task DAG not yet scheduled
 - Human approval CLI stubs exist but approval flow not implemented

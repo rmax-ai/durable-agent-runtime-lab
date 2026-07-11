@@ -49,6 +49,7 @@ class BaselineRuntime:
         final_success = False
         tool_call_count = 0
         model_call_count = 0
+        last_model_error = ""
 
         for iteration in range(max_iterations):
             # ── Ask the model to propose an action ──────────────────────────
@@ -68,8 +69,9 @@ class BaselineRuntime:
                     proposal = runner.run(
                         self._propose_action(wf_id, goal, conversation, step_number)
                     )
-            except (TimeoutError, Exception):
+            except (TimeoutError, Exception) as exc:
                 # Skip this iteration on model failure, try again
+                last_model_error = f"Model proposal failed: {exc}"
                 continue
 
             # If the model says we're done and has already achieved the goal
@@ -118,6 +120,7 @@ class BaselineRuntime:
             "success": final_success,
             "iterations": len(conversation),
             "output": result_output,
+            "error": "" if final_success else last_model_error,
             "model_calls": model_call_count,
             "tool_calls": tool_call_count,
             "conversation": conversation,

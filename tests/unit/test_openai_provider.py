@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -9,7 +10,14 @@ import httpx
 import pytest
 from pydantic import BaseModel
 
-from durable_agent_runtime.models.base import ModelRequest
+from durable_agent_runtime.models.base import (
+    ModelAuthenticationError,
+    ModelProviderError,
+    ModelRateLimitError,
+    ModelRequest,
+    ModelStructuredOutputError,
+    ModelTransientError,
+)
 from durable_agent_runtime.models.openai_provider import OpenAIProvider
 
 # --- Pydantic models used as response_model fixtures ---
@@ -28,10 +36,10 @@ class ComplexResponse(BaseModel):
 # --- Helpers ---
 
 
-def _make_mock_client(
+def _make_mock_transport(
     body: dict[str, Any] | None = None, status_code: int = 200
-) -> httpx.AsyncClient:
-    """Create an AsyncClient with a mock transport that returns a fixed response."""
+) -> httpx.MockTransport:
+    """Create a mock transport that returns a fixed response."""
 
     async def handler(request: httpx.Request) -> httpx.Response:
         # Verify request shape
@@ -41,6 +49,9 @@ def _make_mock_client(
         assert "response_format" in req_body, "Request must include response_format"
         assert req_body["response_format"]["type"] == "json_schema"
         assert "json_schema" in req_body["response_format"]
+        assert "max_completion_tokens" in req_body
+        assert "max_tokens" not in req_body
+        assert req_body["temperature"] == 0.0
 
         # Verify auth header
         assert request.headers.get("Authorization") == "Bearer test-key-123"
@@ -70,7 +81,14 @@ def _make_mock_client(
         }
         return httpx.Response(status_code=status_code, json=resp_body)
 
-    return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    return httpx.MockTransport(handler)
+
+
+def _make_mock_client(
+    body: dict[str, Any] | None = None, status_code: int = 200
+) -> httpx.AsyncClient:
+    """Create an AsyncClient with a mock transport that returns a fixed response."""
+    return httpx.AsyncClient(transport=_make_mock_transport(body=body, status_code=status_code))
 
 
 def _make_inspecting_client(
@@ -174,6 +192,10 @@ async def test_system_prompt_included():
     assert messages[0]["role"] == "system"
     assert messages[0]["content"] == "You are an AI."
     assert messages[1]["role"] == "user"
+    assert (
+        req_body["response_format"]["json_schema"]["schema"]["additionalProperties"] is False
+    )
+    assert req_body["response_format"]["json_schema"]["schema"]["required"] == ["result"]
 
 
 @pytest.mark.asyncio
@@ -196,14 +218,248 @@ async def test_no_system_prompt():
     assert messages[0]["role"] == "user"
 
 
+def test_normalize_json_schema_sets_additional_properties_false() -> None:
+    """Verify object schemas are normalized for OpenAI structured output."""
+    provider = OpenAIProvider(api_key="test-key-123", transport=_make_mock_transport())
+    schema = {
+        "type": "object",
+        "properties": {
+            "child": {
+                "type": "object",
+                "properties": {"name": {"type": "string"}},
+            },
+            "items": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {"value": {"type": "number"}},
+                },
+            },
+        },
+    }
+
+    normalized = provider._normalize_json_schema(schema)
+
+    assert normalized["additionalProperties"] is False
+    assert normalized["required"] == ["child", "items"]
+    assert normalized["properties"]["child"]["additionalProperties"] is False
+    assert normalized["properties"]["child"]["required"] == ["name"]
+    assert normalized["properties"]["items"]["items"]["additionalProperties"] is False
+    assert normalized["properties"]["items"]["items"]["required"] == ["value"]
+
+
 @pytest.mark.asyncio
 async def test_api_error_propagated():
-    """Verify HTTP errors are propagated."""
-    client = _make_mock_client(status_code=401)
+    """Verify auth failures are mapped to a provider-specific exception."""
+    client = _make_mock_client(
+        status_code=401,
+        body={"error": {"message": "bad api key", "type": "invalid_request_error", "code": "x1"}},
+    )
     p = OpenAIProvider(api_key="test-key-123", client=client)
 
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ModelAuthenticationError, match="bad api key"):
         await p.generate_structured(ModelRequest(user_prompt="test"), SimpleResponse)
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_error_mapped():
+    """Verify 429 is mapped to a rate limit error."""
+    client = _make_mock_client(
+        status_code=429,
+        body={"error": {"message": "too many requests", "type": "rate_limit_error"}},
+    )
+    p = OpenAIProvider(api_key="test-key-123", client=client)
+
+    with pytest.raises(ModelRateLimitError, match="too many requests"):
+        await p.generate_structured(ModelRequest(user_prompt="test"), SimpleResponse)
+
+
+@pytest.mark.asyncio
+async def test_server_error_mapped_to_transient():
+    """Verify 5xx responses are treated as transient."""
+    client = _make_mock_client(
+        status_code=500,
+        body={"error": {"message": "server overloaded", "type": "server_error"}},
+    )
+    p = OpenAIProvider(api_key="test-key-123", client=client)
+
+    with pytest.raises(ModelTransientError, match="server overloaded"):
+        await p.generate_structured(ModelRequest(user_prompt="test"), SimpleResponse)
+
+
+@pytest.mark.asyncio
+async def test_generic_http_error_includes_response_body():
+    """Verify generic 4xx failures include the provider response detail."""
+    client = _make_mock_client(
+        status_code=400,
+        body={
+            "error": {
+                "message": "response_format.json_schema is not supported for this model",
+                "type": "invalid_request_error",
+                "code": "unsupported_parameter",
+            }
+        },
+    )
+    p = OpenAIProvider(api_key="test-key-123", client=client)
+
+    with pytest.raises(
+        ModelProviderError,
+        match=r"response_format\.json_schema is not supported for this model",
+    ):
+        await p.generate_structured(ModelRequest(user_prompt="test"), SimpleResponse)
+
+
+@pytest.mark.asyncio
+async def test_refusal_raises_structured_output_error():
+    """Verify refusal responses fail with a structured output error."""
+    client = _make_mock_client(
+        body={
+            "choices": [
+                {
+                    "message": {"role": "assistant", "refusal": "cannot comply"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {},
+        }
+    )
+    p = OpenAIProvider(api_key="test-key-123", client=client)
+
+    with pytest.raises(ModelStructuredOutputError, match="refusal"):
+        await p.generate_structured(ModelRequest(user_prompt="test"), SimpleResponse)
+
+
+@pytest.mark.asyncio
+async def test_invalid_json_content_raises_structured_output_error():
+    """Verify non-JSON content is rejected."""
+    client = _make_mock_client(
+        body={
+            "choices": [
+                {
+                    "message": {"role": "assistant", "content": "not-json"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {},
+        }
+    )
+    p = OpenAIProvider(api_key="test-key-123", client=client)
+
+    with pytest.raises(ModelStructuredOutputError, match="valid JSON"):
+        await p.generate_structured(ModelRequest(user_prompt="test"), SimpleResponse)
+
+
+@pytest.mark.asyncio
+async def test_code_fenced_json_content_is_supported():
+    """Verify fenced JSON is extracted before parsing."""
+    client = _make_mock_client(
+        body={
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": '```json\n{"result": "ok"}\n```',
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {},
+        }
+    )
+    p = OpenAIProvider(api_key="test-key-123", client=client)
+
+    response = await p.generate_structured(ModelRequest(user_prompt="test"), SimpleResponse)
+    assert response.content["result"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_json_with_surrounding_text_is_supported():
+    """Verify a JSON object can be extracted from surrounding prose."""
+    client = _make_mock_client(
+        body={
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": 'Here is the result:\n{"result": "ok"}\nDone.',
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {},
+        }
+    )
+    p = OpenAIProvider(api_key="test-key-123", client=client)
+
+    response = await p.generate_structured(ModelRequest(user_prompt="test"), SimpleResponse)
+    assert response.content["result"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_json_with_trailing_braces_in_prose_is_supported():
+    """Verify trailing prose containing braces does not break JSON extraction."""
+    client = _make_mock_client(
+        body={
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": '{"result": "ok"}\nNotes: use {caution} when editing.',
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {},
+        }
+    )
+    p = OpenAIProvider(api_key="test-key-123", client=client)
+
+    response = await p.generate_structured(ModelRequest(user_prompt="test"), SimpleResponse)
+    assert response.content["result"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_list_content_parts_are_supported():
+    """Verify text content parts are joined before JSON parsing."""
+    client = _make_mock_client(
+        body={
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            {"type": "output_text", "text": '{"result": "par'},
+                            {"type": "output_text", "text": 'sed"}'},
+                        ],
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {},
+        }
+    )
+    p = OpenAIProvider(api_key="test-key-123", client=client)
+
+    response = await p.generate_structured(ModelRequest(user_prompt="test"), SimpleResponse)
+    assert response.content["result"] == "parsed"
+
+
+def test_provider_owned_client_supports_repeated_asyncio_run_calls():
+    """Verify provider-managed clients work across repeated asyncio.run calls."""
+    provider = OpenAIProvider(
+        api_key="test-key-123",
+        transport=_make_mock_transport(),
+    )
+    request = ModelRequest(
+        user_prompt="Return a result string",
+        response_model_name="SimpleResponse",
+    )
+
+    first = asyncio.run(provider.generate_structured(request, SimpleResponse))
+    second = asyncio.run(provider.generate_structured(request, SimpleResponse))
+
+    assert first.content["result"] == "success"
+    assert second.content["result"] == "success"
 
 
 def test_api_key_from_env(monkeypatch: pytest.MonkeyPatch):
@@ -211,7 +467,7 @@ def test_api_key_from_env(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("OPENAI_API_KEY", "env-key-456")
     p = OpenAIProvider()
     assert p.api_key == "env-key-456"
-    assert p.model == "gpt-4o"
+    assert p.model == "gpt-5.4-mini"
 
 
 def test_api_key_explicit_preferred():

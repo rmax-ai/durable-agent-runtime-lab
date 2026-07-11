@@ -1,6 +1,7 @@
 """CLI entry point — Durable Agent Runtime."""
 
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -101,6 +102,70 @@ def _load_experiment_config(config_path: str) -> dict[str, Any]:
         raw = yaml.safe_load(f)
     exp = raw.get("experiment", raw)
     return exp
+
+
+def _resolve_experiment_provider_name(config: dict[str, Any], provider_name: str) -> str:
+    """Resolve experiment provider from CLI override, config, then default."""
+    resolved = (provider_name or str(config.get("provider", ""))).strip().lower() or "mock"
+    if resolved not in {"mock", "openai"}:
+        raise ValueError(f"unknown provider '{resolved}'. Use 'mock' or 'openai'.")
+    return resolved
+
+
+def _resolve_experiment_model_name(
+    config: dict[str, Any],
+    provider_name: str,
+    model_name: str,
+) -> str | None:
+    """Resolve experiment model from CLI override, config, then provider default."""
+    resolved = model_name.strip() or str(config.get("model", "")).strip()
+    if provider_name == "openai":
+        return resolved or "gpt-5.4-mini"
+    return resolved or None
+
+
+def _build_model_provider(provider_name: str, model_name: str | None) -> Any | None:
+    """Construct a model provider instance for experiment execution."""
+    import os
+
+    if provider_name == "mock":
+        return None
+    if provider_name != "openai":
+        raise ValueError(f"unknown provider '{provider_name}'. Use 'mock' or 'openai'.")
+
+    from durable_agent_runtime.models.openai_provider import OpenAIProvider
+
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        raise ValueError("OPENAI_API_KEY not set. Set it via .envrc or environment.")
+    return OpenAIProvider(api_key=api_key, model=model_name or "gpt-5.4-mini")
+
+
+def _prepare_task_workspace(task_data: dict[str, Any], data_dir: Path, run_label: str) -> Path:
+    """Copy a task repository fixture into an isolated run workspace."""
+    task_id = task_data.get("task_id", "task")
+    fixture_value = task_data.get("repository_fixture")
+
+    if not fixture_value:
+        raise ValueError(f"Task {task_id} is missing repository_fixture")
+
+    fixture_path = Path(fixture_value)
+    if not fixture_path.is_absolute():
+        fixture_path = (Path.cwd() / fixture_path).resolve()
+    else:
+        fixture_path = fixture_path.resolve()
+
+    if not fixture_path.exists() or not fixture_path.is_dir():
+        raise FileNotFoundError(f"Repository fixture not found: {fixture_path}")
+
+    workspace = data_dir / "runs" / task_id / run_label / "repo"
+    workspace.parent.mkdir(parents=True, exist_ok=True)
+
+    if workspace.exists():
+        shutil.rmtree(workspace)
+
+    shutil.copytree(fixture_path, workspace)
+    return workspace
 
 
 # ── Core commands ───────────────────────────────────────────────────────────
@@ -364,19 +429,22 @@ def experiment(
         "markdown", "--format", "-f", help="Report format: markdown or json"
     ),
     provider_name: str = typer.Option(
-        "mock", "--provider", "-p", help="Model provider: mock or openai"
+        "", "--provider", "-p", help="Model provider override: mock or openai"
     ),
+    model_name: str = typer.Option("", "--model", "-m", help="Model override for provider runs"),
 ) -> None:
     """Run experiments or generate reports.
 
     Examples:
+      dar experiment run --config experiments/configs/quickstart.yaml
       dar experiment run --config experiments/configs/core.yaml
-      dar experiment run --config experiments/configs/core.yaml --provider openai
+      dar experiment run --config experiments/configs/core.yaml \
+        --provider openai --model gpt-4o-mini
       dar experiment report --experiment-id <id>
       dar experiment report --experiment-id <id> --format json
     """
     if action == "run":
-        _cmd_experiment_run(config_path, provider_name)
+        _cmd_experiment_run(config_path, provider_name, model_name)
     elif action == "report":
         _cmd_experiment_report(experiment_id, output_format)
     else:
@@ -384,10 +452,12 @@ def experiment(
         raise typer.Exit(1) from None
 
 
-def _cmd_experiment_run(config_path: str, provider_name: str = "mock") -> None:
+def _cmd_experiment_run(
+    config_path: str,
+    provider_name: str = "",
+    model_name: str = "",
+) -> None:
     """Run an experiment from its config YAML."""
-    import os
-
     from durable_agent_runtime.experiments.runner import ExperimentRunner
 
     if not config_path:
@@ -401,35 +471,27 @@ def _cmd_experiment_run(config_path: str, provider_name: str = "mock") -> None:
     task_paths = config.get("tasks", [])
     repeats = config.get("repeats", 1)
     faults = config.get("faults", [])
+    resolved_provider_name = _resolve_experiment_provider_name(config, provider_name)
+    resolved_model_name = _resolve_experiment_model_name(
+        config,
+        resolved_provider_name,
+        model_name,
+    )
 
     typer.echo(f"  Experiment: {name}")
     typer.echo(f"  Tasks:      {len(task_paths)} tasks x {repeats} repeats")
     typer.echo(f"  Faults:     {len(faults)} configured")
-    typer.echo(f"  Provider:   {provider_name}")
+    typer.echo(f"  Provider:   {resolved_provider_name}")
+    if resolved_model_name:
+        typer.echo(f"  Model:      {resolved_model_name}")
     typer.echo()
 
     data_dir = _get_data_dir()
-    workspace = Path.cwd()
-
-    # Create provider
-    provider = None
-    if provider_name == "openai":
-        from durable_agent_runtime.models.openai_provider import OpenAIProvider
-
-        api_key = os.getenv("OPENAI_API_KEY", "")
-        if not api_key:
-            typer.echo("Error: OPENAI_API_KEY not set. Set it via .envrc or environment.", err=True)
-            raise typer.Exit(1) from None
-        provider = OpenAIProvider(api_key=api_key)
-    elif provider_name != "mock":
-        typer.echo(f"Error: unknown provider '{provider_name}'. Use 'mock' or 'openai'.", err=True)
+    try:
+        provider = _build_model_provider(resolved_provider_name, resolved_model_name)
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(1) from None
-
-    runner = ExperimentRunner(
-        data_dir=data_dir,
-        workspace=workspace,
-        provider=provider,  # None = MockProvider
-    )
 
     experiment_start = time.monotonic()
     all_report_paths: list[Path] = []
@@ -439,12 +501,21 @@ def _cmd_experiment_run(config_path: str, provider_name: str = "mock") -> None:
         typer.echo(f"  ── {task_path} ──")
 
         task_data = _load_task_yaml(task_path)
-        goal = _task_yaml_to_goal(task_data)
         task_name = task_data.get("name", task_path)
 
         for repeat in range(repeats):
             label = f"      Run {repeat + 1}/{repeats}: "
             try:
+                run_label = f"repeat-{repeat + 1}"
+                task_workspace = _prepare_task_workspace(task_data, data_dir, run_label)
+                goal = _task_yaml_to_goal(task_data).model_copy(
+                    update={"repository_path": str(task_workspace)}
+                )
+                runner = ExperimentRunner(
+                    data_dir=data_dir,
+                    workspace=task_workspace,
+                    provider=provider,  # None = MockProvider
+                )
                 results = runner.run_comparison(
                     goal=goal,
                     faults=faults,
@@ -458,7 +529,8 @@ def _cmd_experiment_run(config_path: str, provider_name: str = "mock") -> None:
                 typer.echo(
                     f"{label}baseline={'✅' if baseline_ok else '❌'} "
                     f"durable={'✅' if durable_ok else '❌'} "
-                    f"→ {report_path.name}"
+                    f"→ {report_path.name} "
+                    f"(workspace: {task_workspace})"
                 )
 
                 # Track summary

@@ -32,6 +32,26 @@ class ModelResponse(BaseModel):
     finish_reason: str = "stop"
 
 
+class ModelProviderError(Exception):
+    """Base exception for model provider failures."""
+
+
+class ModelAuthenticationError(ModelProviderError):
+    """Authentication or authorization failed for the model provider."""
+
+
+class ModelRateLimitError(ModelProviderError):
+    """The model provider rejected the request due to rate limiting."""
+
+
+class ModelTransientError(ModelProviderError):
+    """A transient transport or service failure occurred."""
+
+
+class ModelStructuredOutputError(ModelProviderError):
+    """The provider returned content that could not be parsed or validated."""
+
+
 class ModelProvider(Protocol):
     """Provider-neutral model interface (Section 26)."""
 

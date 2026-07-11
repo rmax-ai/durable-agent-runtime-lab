@@ -6,6 +6,7 @@ from pathlib import Path
 
 from durable_agent_runtime.domain import GoalSpecification
 from durable_agent_runtime.experiments.durable import DurableRuntime
+from durable_agent_runtime.models.base import ModelTransientError
 
 
 class TestDurableRuntimeE2E:
@@ -83,6 +84,35 @@ class TestDurableRuntimeE2E:
             assert wf_state is not None
             assert wf_state.status in ("completed", "failed")
 
+    def test_model_proposal_failure_marks_task_failed_and_preserves_error(self) -> None:
+        class FailingProvider:
+            async def generate_structured(self, request, response_model):
+                raise ModelTransientError("upstream timeout")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir) / "data"
+            workspace = Path(tmpdir) / "workspace"
+            workspace.mkdir()
+
+            runtime = DurableRuntime(data_dir, workspace, provider=FailingProvider())
+            goal = GoalSpecification(
+                raw_goal="Fail proposal",
+                normalized_goal="Force proposal failure",
+                repository_path=str(workspace),
+            )
+
+            result = runtime.run_goal(goal)
+
+            assert result["success"] is False
+            assert (
+                result["task_results"][result["task_id"]]["error"]
+                == "Model proposal failed: upstream timeout"
+            )
+
+            task_row = runtime.engine.state.get_task(uuid.UUID(result["task_id"]))
+            assert task_row is not None
+            assert task_row.status == "failed"
+
 
 class TestBaselineRuntimeE2E:
     def test_baseline_executes(self) -> None:
@@ -102,6 +132,30 @@ class TestBaselineRuntimeE2E:
 
             assert "workflow_id" in result
             assert "model_calls" in result
+
+    def test_baseline_preserves_last_model_error(self) -> None:
+        from durable_agent_runtime.experiments.baseline import BaselineRuntime
+
+        class FailingProvider:
+            async def generate_structured(self, request, response_model):
+                raise ModelTransientError("upstream rejected request")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace = Path(tmpdir) / "workspace"
+            workspace.mkdir()
+
+            runtime = BaselineRuntime(workspace, provider=FailingProvider())
+            goal = GoalSpecification(
+                raw_goal="Test baseline failure",
+                normalized_goal="Run baseline failure test",
+                repository_path=str(workspace),
+            )
+            result = runtime.run_goal(goal)
+
+            assert result["success"] is False
+            assert result["iterations"] == 0
+            assert result["tool_calls"] == 0
+            assert result["error"] == "Model proposal failed: upstream rejected request"
 
 
 class TestExperimentRunner:

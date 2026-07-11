@@ -88,7 +88,11 @@
       </div>
       <div class="text-slate-400">
         <span class="text-cyan-400">$</span> uv run dar experiment run
-        --config experiments/configs/core.yaml
+        --config experiments/configs/quickstart.yaml
+      </div>
+      <div class="text-slate-400">
+        <span class="text-cyan-400">$</span> uv run dar experiment run
+        --config experiments/configs/quickstart.yaml --provider openai
       </div>
     </div>
   </header>
@@ -225,7 +229,12 @@ uv sync --extra dev
 uv run pytest                # 221 tests
 
 # Run an experiment (mock provider, no API key needed)
-uv run dar experiment run --config experiments/configs/core.yaml
+uv run dar experiment run --config experiments/configs/quickstart.yaml
+
+# Run the same experiment with OpenAI (requires OPENAI_API_KEY)
+UV_CACHE_DIR=.uv-cache uv run dar experiment run \
+  --config experiments/configs/quickstart.yaml \
+  --provider openai
 
 # Generate a report
 uv run dar experiment report</code></pre>

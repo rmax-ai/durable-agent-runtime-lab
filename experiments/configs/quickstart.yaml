@@ -1,0 +1,10 @@
+# Self-contained quickstart experiment.
+# Uses a checked-in benchmark fixture and stages it into data/runs/ automatically.
+experiment:
+  name: "Quickstart Experiment"
+  runtimes: [baseline, durable]
+  tasks:
+    - benchmarks/tasks/task-01.yaml
+  repeats: 1
+  provider: mock
+  faults: []
