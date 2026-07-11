@@ -197,6 +197,60 @@ class TestBaselineRuntimeE2E:
             assert result["success"] is False
             assert result["tool_calls"] == 5
 
+    def test_baseline_uses_success_criteria_when_repo_is_correct(self) -> None:
+        from durable_agent_runtime.domain import SuccessCriterion
+        from durable_agent_runtime.experiments.baseline import BaselineRuntime
+
+        class NonTerminalProvider:
+            async def generate_structured(self, request, response_model):
+                return type(
+                    "Resp",
+                    (),
+                    {
+                        "content": {
+                            "tool_name": "run_command",
+                            "command": "printf 'done\\n' > result.txt",
+                            "intention": "Write expected output",
+                            "risk_level": "low",
+                            "expected_effects": [],
+                            "is_terminal": False,
+                        }
+                    },
+                )()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace = Path(tmpdir) / "workspace"
+            workspace.mkdir()
+
+            runtime = BaselineRuntime(workspace, provider=NonTerminalProvider())
+            goal = GoalSpecification(
+                raw_goal="Write result file",
+                normalized_goal="Write result file",
+                repository_path=str(workspace),
+                success_criteria=[
+                    SuccessCriterion(
+                        name="result_file_contains",
+                        description="result.txt",
+                        verification_method="file_contains",
+                        expected="done\n",
+                    ),
+                    SuccessCriterion(
+                        name="result_file_verifies",
+                        description="python -c \"from pathlib import Path; "
+                        "assert Path('result.txt').read_text() == 'done\\n'\"",
+                        verification_method="test_pass",
+                        expected="python -c \"from pathlib import Path; "
+                        "assert Path('result.txt').read_text() == 'done\\n'\"",
+                    ),
+                ],
+            )
+            result = runtime.run_goal(goal)
+
+            assert result["success"] is True
+            assert result["tool_calls"] == 1
+            assert result["model_calls"] == 1
+            assert result["error"] == ""
+
 
 class TestDurableRuntimeRetryBehavior:
     def test_retry_wait_tasks_are_retried(self) -> None:

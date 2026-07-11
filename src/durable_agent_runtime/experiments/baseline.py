@@ -11,7 +11,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from durable_agent_runtime.domain import ActionProposal, GoalSpecification
+from durable_agent_runtime.domain import ActionProposal, GoalSpecification, SuccessCriterion
 from durable_agent_runtime.domain.enums import FaultType, RiskLevel
 from durable_agent_runtime.execution.process_executor import ProcessExecutor
 from durable_agent_runtime.execution.tool_registry import ToolContext
@@ -50,6 +50,22 @@ class BaselineRuntime:
         tool_call_count = 0
         model_call_count = 0
         last_model_error = ""
+        last_verification_error = ""
+
+        if goal.success_criteria:
+            final_success, failures = self._evaluate_success_criteria(goal)
+            if final_success:
+                return {
+                    "workflow_id": str(wf_id),
+                    "success": True,
+                    "iterations": 0,
+                    "output": result_output,
+                    "error": "",
+                    "model_calls": 0,
+                    "tool_calls": 0,
+                    "conversation": conversation,
+                }
+            last_verification_error = "; ".join(failures)
 
         for iteration in range(max_iterations):
             # ── Ask the model to propose an action ──────────────────────────
@@ -111,7 +127,12 @@ class BaselineRuntime:
             result_output = result.output
 
             # ── Decide whether to continue ──────────────────────────────────
-            if result.success and is_terminal:
+            if goal.success_criteria:
+                final_success, failures = self._evaluate_success_criteria(goal)
+                if final_success:
+                    break
+                last_verification_error = "; ".join(failures)
+            elif result.success and is_terminal:
                 final_success = True
                 break
 
@@ -120,11 +141,74 @@ class BaselineRuntime:
             "success": final_success,
             "iterations": len(conversation),
             "output": result_output,
-            "error": "" if final_success else last_model_error,
+            "error": "" if final_success else (last_model_error or last_verification_error),
             "model_calls": model_call_count,
             "tool_calls": tool_call_count,
             "conversation": conversation,
         }
+
+    def _evaluate_success_criteria(self, goal: GoalSpecification) -> tuple[bool, list[str]]:
+        """Return whether all declared success criteria currently pass."""
+        failures: list[str] = []
+
+        for criterion in goal.success_criteria:
+            passed, detail = self._evaluate_success_criterion(criterion)
+            if not passed:
+                failures.append(detail)
+
+        return not failures, failures
+
+    def _evaluate_success_criterion(self, criterion: SuccessCriterion) -> tuple[bool, str]:
+        """Evaluate one success criterion against the current workspace."""
+        method = criterion.verification_method
+
+        if method == "test_pass":
+            command = str(criterion.expected or criterion.description).strip()
+            if not command:
+                return False, "test_pass criterion missing command"
+            result = self.executor.execute(
+                ["sh", "-c", command],
+                ToolContext(workspace_root=str(self.workspace)),
+            )
+            if result.success:
+                return True, ""
+            detail = result.error or result.output or f"exit code {result.exit_code}"
+            return False, f"test_pass failed for `{command}`: {detail[:160]}"
+
+        if method in {"file_contains", "file_does_not_contain", "file_exists"}:
+            file_path = str(criterion.description).strip()
+            resolved = self._resolve_workspace_path(file_path)
+            if resolved is None:
+                return False, f"{method} path outside workspace: {file_path}"
+            if method == "file_exists":
+                if resolved.exists():
+                    return True, ""
+                return False, f"file_exists failed for {file_path}"
+            if not resolved.exists():
+                return False, f"{method} failed because {file_path} does not exist"
+            try:
+                content = resolved.read_text()
+            except OSError as exc:
+                return False, f"{method} failed to read {file_path}: {exc}"
+            expected = str(criterion.expected or "")
+            if method == "file_contains":
+                if expected in content:
+                    return True, ""
+                return False, f"file_contains failed for {file_path}: missing `{expected}`"
+            if expected not in content:
+                return True, ""
+            return False, f"file_does_not_contain failed for {file_path}: found `{expected}`"
+
+        return False, f"unsupported success criterion: {method}"
+
+    def _resolve_workspace_path(self, raw_path: str) -> Path | None:
+        """Resolve a workspace-relative path and reject escapes."""
+        candidate = (self.workspace / raw_path).resolve()
+        try:
+            candidate.relative_to(self.workspace.resolve())
+        except ValueError:
+            return None
+        return candidate
 
     # ── Internal: model interaction ─────────────────────────────────────────
 
