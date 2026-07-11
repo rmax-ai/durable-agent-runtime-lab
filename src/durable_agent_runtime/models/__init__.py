@@ -7,6 +7,7 @@ from durable_agent_runtime.models.base import (
     ModelResponse,
 )
 from durable_agent_runtime.models.openai_provider import OpenAIProvider
+from durable_agent_runtime.models.prompts import ProposedAction, build_action_prompt
 from durable_agent_runtime.models.router import ModelRouter
 
 __all__ = [
@@ -16,4 +17,6 @@ __all__ = [
     "ModelResponse",
     "ModelRouter",
     "OpenAIProvider",
+    "ProposedAction",
+    "build_action_prompt",
 ]

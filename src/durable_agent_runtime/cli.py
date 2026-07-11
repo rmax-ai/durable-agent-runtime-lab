@@ -363,16 +363,20 @@ def experiment(
     output_format: str = typer.Option(
         "markdown", "--format", "-f", help="Report format: markdown or json"
     ),
+    provider_name: str = typer.Option(
+        "mock", "--provider", "-p", help="Model provider: mock or openai"
+    ),
 ) -> None:
     """Run experiments or generate reports.
 
     Examples:
       dar experiment run --config experiments/configs/core.yaml
+      dar experiment run --config experiments/configs/core.yaml --provider openai
       dar experiment report --experiment-id <id>
       dar experiment report --experiment-id <id> --format json
     """
     if action == "run":
-        _cmd_experiment_run(config_path)
+        _cmd_experiment_run(config_path, provider_name)
     elif action == "report":
         _cmd_experiment_report(experiment_id, output_format)
     else:
@@ -380,8 +384,10 @@ def experiment(
         raise typer.Exit(1) from None
 
 
-def _cmd_experiment_run(config_path: str) -> None:
+def _cmd_experiment_run(config_path: str, provider_name: str = "mock") -> None:
     """Run an experiment from its config YAML."""
+    import os
+
     from durable_agent_runtime.experiments.runner import ExperimentRunner
 
     if not config_path:
@@ -399,15 +405,30 @@ def _cmd_experiment_run(config_path: str) -> None:
     typer.echo(f"  Experiment: {name}")
     typer.echo(f"  Tasks:      {len(task_paths)} tasks x {repeats} repeats")
     typer.echo(f"  Faults:     {len(faults)} configured")
+    typer.echo(f"  Provider:   {provider_name}")
     typer.echo()
 
     data_dir = _get_data_dir()
     workspace = Path.cwd()
 
+    # Create provider
+    provider = None
+    if provider_name == "openai":
+        from durable_agent_runtime.models.openai_provider import OpenAIProvider
+
+        api_key = os.getenv("OPENAI_API_KEY", "")
+        if not api_key:
+            typer.echo("Error: OPENAI_API_KEY not set. Set it via .envrc or environment.", err=True)
+            raise typer.Exit(1) from None
+        provider = OpenAIProvider(api_key=api_key)
+    elif provider_name != "mock":
+        typer.echo(f"Error: unknown provider '{provider_name}'. Use 'mock' or 'openai'.", err=True)
+        raise typer.Exit(1) from None
+
     runner = ExperimentRunner(
         data_dir=data_dir,
         workspace=workspace,
-        provider=None,  # Uses MockProvider by default
+        provider=provider,  # None = MockProvider
     )
 
     experiment_start = time.monotonic()

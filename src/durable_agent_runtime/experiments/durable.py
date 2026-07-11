@@ -6,6 +6,7 @@ process executor → result → commit/reject → event ledger.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -60,6 +61,8 @@ class DurableRuntime:
 
         Returns a results dictionary with success/failure and metrics.
         """
+        model_call_count = 0  # track actual provider calls
+
         # 1. Create workflow
         wf_id = self.engine.create_workflow(goal.goal_id, goal.repository_path)
 
@@ -115,6 +118,7 @@ class DurableRuntime:
             for task_id in ready:
                 result = self._execute_task(wf_id, task_id, goal)
                 results[str(task_id)] = result
+                model_call_count += 1
 
         # 5. Determine final status
         all_tasks = self.engine.state.get_tasks_by_workflow(wf_id)
@@ -157,6 +161,7 @@ class DurableRuntime:
             # Backward-compat fields for single-task mode
             "task_id": str(plan.tasks[0].task_id) if plan.tasks else "",
             "output": (next(iter(results.values())).get("output", "") if results else ""),
+            "model_calls": model_call_count,
         }
 
     # ── Fault injection helpers ─────────────────────────────────────────────
@@ -187,6 +192,72 @@ class DurableRuntime:
             required_tools=goal.available_tools,
         )
 
+    async def _propose_action(
+        self,
+        wf_id: UUID,
+        task_id: UUID,
+        goal: GoalSpecification,
+        attempt: int = 1,
+    ) -> ActionProposal:
+        """Ask the model provider to propose an action for the given goal.
+
+        Uses structured output to get a typed ``ProposedAction``, then
+        converts it to a domain ``ActionProposal``.
+        """
+        from durable_agent_runtime.models.base import ModelRequest
+        from durable_agent_runtime.models.prompts import ProposedAction, build_action_prompt
+
+        system_prompt, user_prompt = build_action_prompt(
+            goal_text=goal.normalized_goal,
+            repository_path=goal.repository_path,
+            tools=self.tool_registry.list_names() or ["run_command", "read_file", "write_file"],
+        )
+
+        request = ModelRequest(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            response_model_name="ProposedAction",
+        )
+
+        response = await self.provider.generate_structured(request, ProposedAction)
+        action_data = response.content
+
+        # Convert ProposedAction → ActionProposal
+        risk_map = {
+            "low": RiskLevel.LOW,
+            "medium": RiskLevel.MEDIUM,
+            "high": RiskLevel.HIGH,
+            "critical": RiskLevel.CRITICAL,
+        }
+
+        # Build arguments dict based on tool
+        tool_name = action_data.get("tool_name", "run_command")
+        arguments: dict[str, Any] = {}
+        if tool_name == "run_command":
+            arguments["command"] = action_data.get("command", "echo done")
+        elif tool_name == "read_file":
+            arguments["path"] = action_data.get("command", ".")
+        elif tool_name == "write_file":
+            arguments["path"] = action_data.get("command", "")
+            arguments["content"] = action_data.get("file_content", "")
+        else:
+            arguments["command"] = action_data.get("command", "echo done")
+
+        return ActionProposal(
+            workflow_id=wf_id,
+            task_id=task_id,
+            actor_id=f"{getattr(self.provider, 'name', 'model')}-step-{attempt}",
+            tool_name=tool_name,
+            arguments=arguments,
+            intention=action_data.get("intention", f"Execute: {goal.normalized_goal[:80]}"),
+            expected_effects=action_data.get("expected_effects", []),
+            idempotency_key=f"task-{task_id}-attempt-{attempt}",
+            risk_level=risk_map.get(
+                action_data.get("risk_level", "low"),
+                RiskLevel.LOW,
+            ),
+        )
+
     def _execute_task(self, wf_id: UUID, task_id: UUID, goal: GoalSpecification) -> dict[str, Any]:
         """Execute one task through the proposal→verify→execute→commit cycle.
 
@@ -200,17 +271,15 @@ class DurableRuntime:
         # Check for model-related faults before creating proposal
         self._check_event_fault("action_proposed")
 
-        # Create an action proposal
-        proposal = ActionProposal(
-            workflow_id=wf_id,
-            task_id=task_id,
-            actor_id="mock-model",
-            tool_name="run_command",
-            arguments=({"command": f"echo 'Completing: {goal.raw_goal[:50]}'"}),
-            intention=f"Execute: {goal.normalized_goal[:80]}",
-            idempotency_key=f"task-{task_id}-attempt-1",
-            risk_level=RiskLevel.LOW,
-        )
+        # Ask the model to propose an action (run async inside sync context)
+        try:
+            proposal = asyncio.run(self._propose_action(wf_id, task_id, goal))
+        except (TimeoutError, Exception) as exc:
+            self.engine.transition_task(task_id, wf_id, TaskStatus.REJECTED)
+            return {
+                "success": False,
+                "error": f"Model proposal failed: {exc}",
+            }
 
         # Verify
         self.engine.transition_task(task_id, wf_id, TaskStatus.VERIFYING)

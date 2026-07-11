@@ -15,7 +15,23 @@ class TestDurableRuntimeE2E:
             workspace = Path(tmpdir) / "workspace"
             workspace.mkdir()
 
-            runtime = DurableRuntime(data_dir, workspace)
+            from durable_agent_runtime.models.base import MockProvider
+
+            provider = MockProvider()
+            # Register a fixture so the model "proposes" echo hello world
+            provider.set_fixture(
+                "Run echo",
+                {
+                    "tool_name": "run_command",
+                    "command": "echo hello world",
+                    "intention": "Echo hello world as requested",
+                    "risk_level": "low",
+                    "expected_effects": ["prints 'hello world'"],
+                    "is_terminal": True,
+                },
+            )
+
+            runtime = DurableRuntime(data_dir, workspace, provider=provider)
             goal = GoalSpecification(
                 raw_goal="Echo hello world",
                 normalized_goal="Run echo hello world",
@@ -24,10 +40,8 @@ class TestDurableRuntimeE2E:
             result = runtime.run_goal(goal)
 
             assert result["success"] is True
-            assert (
-                "hello world" in result.get("output", "").lower()
-                or "echo" in result.get("output", "").lower()
-            )
+            assert "hello world" in result.get("output", "").lower()
+            assert provider.call_count == 1  # model was actually called
 
     def test_workflow_events_are_recorded(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
