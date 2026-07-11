@@ -42,10 +42,6 @@ Thumbs.db
 # Project artifacts
 experiments/runs/*
 experiments/reports/*
-benchmarks/repositories/*
-!benchmarks/repositories/.gitkeep
-
-# Leave run dirs but not contents
 !experiments/runs/.gitkeep
 !experiments/reports/.gitkeep
 !experiments/configs/.gitkeep

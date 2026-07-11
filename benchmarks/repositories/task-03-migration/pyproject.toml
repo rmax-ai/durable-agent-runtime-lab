@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "task-03-migration"
+version = "0.1.0"
+description = "Project using Pydantic v1 API patterns"
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=1.10,<2",
+]
+
+[dependency-groups]
+dev = ["pytest>=7"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
