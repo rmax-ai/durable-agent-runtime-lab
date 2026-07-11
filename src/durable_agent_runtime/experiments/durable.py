@@ -150,7 +150,7 @@ class DurableRuntime:
             # Backward-compat fields for single-task mode
             "task_id": str(plan.tasks[0].task_id) if plan.tasks else "",
             "output": (
-                list(results.values())[0].get("output", "")
+                next(iter(results.values())).get("output", "")
                 if results
                 else ""
             ),
