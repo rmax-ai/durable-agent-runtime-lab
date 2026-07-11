@@ -6,20 +6,28 @@ Same provider, tools, tasks, and budget as the durable runtime.
 
 import uuid
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from durable_agent_runtime.domain import ActionProposal, GoalSpecification
 from durable_agent_runtime.domain.enums import RiskLevel
 from durable_agent_runtime.execution.process_executor import ProcessExecutor
 from durable_agent_runtime.execution.tool_registry import ToolContext
-from durable_agent_runtime.models.base import MockProvider
+from durable_agent_runtime.models.base import MockProvider, ModelProvider
+
+if TYPE_CHECKING:
+    from durable_agent_runtime.models.base import ModelProvider
 
 
 class BaselineRuntime:
     """Conventional agent loop for comparison experiments."""
 
-    def __init__(self, workspace: Path) -> None:
+    def __init__(
+        self,
+        workspace: Path,
+        provider: ModelProvider | None = None,
+    ) -> None:
         self.workspace = Path(workspace)
-        self.provider = MockProvider()
+        self.provider = provider or MockProvider()
         self.executor = ProcessExecutor()
 
     def run_goal(self, goal: GoalSpecification) -> dict:

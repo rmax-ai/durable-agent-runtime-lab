@@ -157,6 +157,113 @@ class OrchestratorEngine:
         )
         return self.events.append(event)
 
+    # ── Human approval flow (Phase 4) ───────────────────────────────────
+    #
+    # request_approval: RUNNING → PAUSED, emits HUMAN_APPROVAL_REQUESTED
+    # approve:          PAUSED  → RUNNING, emits HUMAN_APPROVAL_RECEIVED
+    # reject:           PAUSED  → RUNNING, emits HUMAN_APPROVAL_RECEIVED with rejection reason
+
+    def request_approval(self, workflow_id: UUID, proposal_id: UUID, reason: str) -> None:
+        """Request human approval for a proposal. Transitions RUNNING → PAUSED.
+
+        Args:
+            workflow_id: Target workflow.
+            proposal_id: The proposal requiring approval.
+            reason: Human-readable explanation of why approval is needed.
+
+        Raises:
+            ValueError: If workflow is not RUNNING.
+            InvalidTransitionError: If the state machine forbids the transition.
+        """
+        current_row = self.state.get_workflow(workflow_id)
+        current = WorkflowStatus(current_row.status) if current_row else WorkflowStatus.CREATED
+        if current != WorkflowStatus.RUNNING:
+            raise ValueError(
+                f"Cannot request approval: workflow is {current.value}, expected running"
+            )
+
+        validate_transition(current, WorkflowStatus.PAUSED, "workflow")
+
+        self._append_event(
+            workflow_id=workflow_id,
+            event_type=EventType.HUMAN_APPROVAL_REQUESTED,
+            actor_id="orchestrator",
+            payload={
+                "proposal_id": str(proposal_id),
+                "reason": reason,
+                "from_status": current.value,
+                "to_status": WorkflowStatus.PAUSED.value,
+            },
+        )
+        self.state.upsert_workflow(workflow_id, WorkflowStatus.PAUSED)
+
+    def approve(self, workflow_id: UUID, proposal_id: UUID) -> None:
+        """Approve a previously requested proposal. Transitions PAUSED → RUNNING.
+
+        Args:
+            workflow_id: Target workflow.
+            proposal_id: The proposal being approved.
+
+        Raises:
+            ValueError: If workflow is not PAUSED.
+            InvalidTransitionError: If the state machine forbids the transition.
+        """
+        current_row = self.state.get_workflow(workflow_id)
+        current = WorkflowStatus(current_row.status) if current_row else WorkflowStatus.CREATED
+        if current != WorkflowStatus.PAUSED:
+            raise ValueError(f"Cannot approve: workflow is {current.value}, expected paused")
+
+        validate_transition(current, WorkflowStatus.RUNNING, "workflow")
+
+        self._append_event(
+            workflow_id=workflow_id,
+            event_type=EventType.HUMAN_APPROVAL_RECEIVED,
+            actor_id="orchestrator",
+            payload={
+                "proposal_id": str(proposal_id),
+                "approved": True,
+                "from_status": current.value,
+                "to_status": WorkflowStatus.RUNNING.value,
+            },
+        )
+        self.state.upsert_workflow(workflow_id, WorkflowStatus.RUNNING)
+
+    def reject(self, workflow_id: UUID, proposal_id: UUID, reason: str = "") -> None:
+        """Reject a previously requested proposal. Transitions PAUSED → RUNNING.
+
+        The workflow resumes even when a proposal is rejected — rejection means
+        the proposal was not approved, but the workflow continues executing.
+
+        Args:
+            workflow_id: Target workflow.
+            proposal_id: The proposal being rejected.
+            reason: Optional human-readable explanation for the rejection.
+
+        Raises:
+            ValueError: If workflow is not PAUSED.
+            InvalidTransitionError: If the state machine forbids the transition.
+        """
+        current_row = self.state.get_workflow(workflow_id)
+        current = WorkflowStatus(current_row.status) if current_row else WorkflowStatus.CREATED
+        if current != WorkflowStatus.PAUSED:
+            raise ValueError(f"Cannot reject: workflow is {current.value}, expected paused")
+
+        validate_transition(current, WorkflowStatus.RUNNING, "workflow")
+
+        self._append_event(
+            workflow_id=workflow_id,
+            event_type=EventType.HUMAN_APPROVAL_RECEIVED,
+            actor_id="orchestrator",
+            payload={
+                "proposal_id": str(proposal_id),
+                "approved": False,
+                "reason": reason,
+                "from_status": current.value,
+                "to_status": WorkflowStatus.RUNNING.value,
+            },
+        )
+        self.state.upsert_workflow(workflow_id, WorkflowStatus.RUNNING)
+
     # ── Budget tracking ─────────────────────────────────────────────────
 
     def record_model_call(

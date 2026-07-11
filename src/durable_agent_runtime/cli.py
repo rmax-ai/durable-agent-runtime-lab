@@ -215,17 +215,55 @@ def cancel(workflow_id: str) -> None:
 
 
 @app.command()
-def approve(workflow_id: str, proposal_id: str) -> None:
+def approve(
+    workflow_id: str = typer.Argument(..., help="Workflow ID"),
+    proposal_id: str = typer.Argument(..., help="Proposal ID"),
+) -> None:
     """Approve a human-approval-required action."""
-    typer.echo("approve — not yet implemented")
+    from durable_agent_runtime.orchestration.engine import OrchestratorEngine
+
+    try:
+        wf_id = UUID(workflow_id)
+        prop_id = UUID(proposal_id)
+    except ValueError:
+        typer.echo("Error: invalid UUID format", err=True)
+        raise typer.Exit(1) from None
+
+    engine = OrchestratorEngine(_get_data_dir())
+    try:
+        engine.approve(wf_id, prop_id)
+        typer.echo(f"✅ Approved proposal {proposal_id} for workflow {workflow_id}")
+    except ValueError as e:
+        typer.echo(f"❌ {e}", err=True)
+        raise typer.Exit(1) from None
 
 
 @app.command()
 def reject(
-    workflow_id: str, proposal_id: str, reason: str = typer.Option("", help="Rejection reason")
+    workflow_id: str = typer.Argument(..., help="Workflow ID"),
+    proposal_id: str = typer.Argument(..., help="Proposal ID"),
+    reason: str = typer.Option("", help="Rejection reason"),
 ) -> None:
     """Reject a human-approval-required action."""
-    typer.echo("reject — not yet implemented")
+    from durable_agent_runtime.orchestration.engine import OrchestratorEngine
+
+    try:
+        wf_id = UUID(workflow_id)
+        prop_id = UUID(proposal_id)
+    except ValueError:
+        typer.echo("Error: invalid UUID format", err=True)
+        raise typer.Exit(1) from None
+
+    engine = OrchestratorEngine(_get_data_dir())
+    try:
+        engine.reject(wf_id, prop_id, reason)
+        msg = f"Rejected proposal {proposal_id} for workflow {workflow_id}"
+        if reason:
+            msg += f" (reason: {reason})"
+        typer.echo(f"✅ {msg}")
+    except ValueError as e:
+        typer.echo(f"❌ {e}", err=True)
+        raise typer.Exit(1) from None
 
 
 @app.command()

@@ -4,8 +4,11 @@ Wires together: orchestrator → model proposer → boundary verification →
 process executor → result → commit/reject → event ledger.
 """
 
+from __future__ import annotations
+
 import uuid
 from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from durable_agent_runtime.boundary.service import BoundaryService
@@ -13,8 +16,12 @@ from durable_agent_runtime.domain import ActionProposal, GoalSpecification, Plan
 from durable_agent_runtime.domain.enums import RiskLevel, TaskStatus, WorkflowStatus
 from durable_agent_runtime.execution.process_executor import ProcessExecutor
 from durable_agent_runtime.execution.tool_registry import ToolContext, ToolRegistry
-from durable_agent_runtime.models.base import MockProvider
+from durable_agent_runtime.models.base import MockProvider, ModelProvider
 from durable_agent_runtime.orchestration.engine import OrchestratorEngine
+from durable_agent_runtime.orchestration.scheduler import TaskScheduler
+
+if TYPE_CHECKING:
+    from durable_agent_runtime.models.base import ModelProvider
 
 
 class DurableRuntime:
@@ -22,52 +29,127 @@ class DurableRuntime:
 
     Executes a workflow through the full pipeline:
     Goal → Compile → Plan → Orchestrate → Propose → Verify → Execute → Commit.
+    Supports single-task (backward-compat) and multi-task DAG plans.
     """
 
-    def __init__(self, data_dir: Path, workspace: Path) -> None:
+    def __init__(
+        self,
+        data_dir: Path,
+        workspace: Path,
+        provider: ModelProvider | None = None,
+    ) -> None:
         self.data_dir = Path(data_dir)
         self.workspace = Path(workspace)
         self.engine = OrchestratorEngine(self.data_dir)
         self.boundary = BoundaryService(self.engine.state)
         self.executor = ProcessExecutor()
-        self.provider = MockProvider()
+        self.provider = provider or MockProvider()
         self.tool_registry = ToolRegistry()
+        self.scheduler = TaskScheduler(self.engine.state, self.engine)
 
-    def run_goal(self, goal: GoalSpecification) -> dict:
+    # ── Public entry point ──────────────────────────────────────────────────
+
+    def run_goal(self, goal: GoalSpecification, plan: Plan | None = None) -> dict:
         """Execute a goal specification through the durable runtime.
+
+        If *plan* is provided it is used directly (multi-task DAG support).
+        If *plan* is None a default single-task plan is created (backward-compat).
 
         Returns a results dictionary with success/failure and metrics.
         """
         # 1. Create workflow
         wf_id = self.engine.create_workflow(goal.goal_id, goal.repository_path)
 
-        # 2. Compile → Plan (simplified: create a single-task plan)
+        # 2. Compile → Plan
         self.engine.transition_workflow(wf_id, WorkflowStatus.COMPILED)
-        task_id = uuid.uuid4()
-        plan = Plan(
-            goal_id=goal.goal_id,
-            tasks=[self._create_default_task(task_id, goal)],
-        )
-        self.engine.register_tasks(wf_id, plan)
+
+        if plan is not None:
+            # Use the provided multi-task plan
+            self.engine.register_tasks(wf_id, plan)
+        else:
+            # Backward-compatible single-task plan
+            task_id = uuid.uuid4()
+            plan = Plan(
+                goal_id=goal.goal_id,
+                tasks=[self._create_default_task(task_id, goal)],
+            )
+            self.engine.register_tasks(wf_id, plan)
+
         self.engine.transition_workflow(wf_id, WorkflowStatus.PLANNED)
         self.engine.transition_workflow(wf_id, WorkflowStatus.RUNNING)
 
-        # 3. Execute the single task
-        result = self._execute_task(wf_id, task_id, goal)
-
-        # 4. Complete
-        if result["success"]:
-            self.engine.transition_workflow(wf_id, WorkflowStatus.COMPLETED)
-        else:
+        # 3. Detect circular dependencies
+        cycles = self.scheduler.detect_circular_deps(plan)
+        if cycles:
             self.engine.transition_workflow(wf_id, WorkflowStatus.FAILED)
+            return {
+                "workflow_id": str(wf_id),
+                "success": False,
+                "error": f"Circular dependencies detected: {cycles}",
+            }
+
+        # 4. Multi-task DAG execution loop
+        results: dict[str, dict] = {}
+        max_iterations = len(plan.tasks) * 10  # safety bound
+        iteration = 0
+
+        while iteration < max_iterations:
+            iteration += 1
+
+            # Promote tasks whose deps are now satisfied
+            promoted = self.scheduler.promote_pending(wf_id, plan)
+            ready = self.scheduler.get_ready(wf_id, plan)
+
+            if not ready and promoted == 0:
+                # No progress — check if we're done or stuck
+                break
+
+            # Execute each READY task
+            for task_id in ready:
+                result = self._execute_task(wf_id, task_id, goal)
+                results[str(task_id)] = result
+
+        # 5. Determine final status
+        all_tasks = self.engine.state.get_tasks_by_workflow(wf_id)
+        task_statuses = {UUID(row.task_id): TaskStatus(row.status) for row in all_tasks}
+
+        committed = [tid for tid, s in task_statuses.items() if s == TaskStatus.COMMITTED]
+        failed = [tid for tid, s in task_statuses.items() if s == TaskStatus.FAILED]
+        blocked = [tid for tid, s in task_statuses.items() if s == TaskStatus.BLOCKED]
+
+        all_done = len(committed) == len(plan.tasks)
+        unrecoverable = len(failed) + len(blocked) == len(plan.tasks)
+
+        if all_done:
+            self.engine.transition_workflow(wf_id, WorkflowStatus.COMPLETED)
+            overall_success = True
+            error_msg = ""
+        elif unrecoverable:
+            self.engine.transition_workflow(wf_id, WorkflowStatus.FAILED)
+            overall_success = False
+            error_msg = (
+                f"Tasks: {len(committed)} committed, {len(failed)} failed, {len(blocked)} blocked"
+            )
+        else:
+            # Mixed — some still in progress or PENDING
+            self.engine.transition_workflow(wf_id, WorkflowStatus.FAILED)
+            overall_success = False
+            error_msg = "Execution halted with incomplete tasks"
 
         return {
             "workflow_id": str(wf_id),
-            "success": result["success"],
-            "task_id": str(task_id),
-            "output": result.get("output", ""),
-            "error": result.get("error", ""),
+            "success": overall_success,
+            "error": error_msg,
+            "task_results": results,
+            "task_summary": {
+                "total": len(plan.tasks),
+                "committed": len(committed),
+                "failed": len(failed),
+                "blocked": len(blocked),
+            },
         }
+
+    # ── Helpers ─────────────────────────────────────────────────────────────
 
     def _create_default_task(self, task_id: UUID, goal: GoalSpecification):
         from durable_agent_runtime.domain import Task
