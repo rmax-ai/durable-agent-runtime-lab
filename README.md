@@ -29,7 +29,7 @@ Models are **stochastic proposal generators**. They interpret goals, propose pla
 
 ## Current Status
 
-All 9 milestones implemented. 155 tests passing.
+All 9 milestones implemented. 221 tests passing.
 
 | Milestone | Description | Status |
 |-----------|-------------|--------|
@@ -79,7 +79,7 @@ runner.save_report(results)
 
 ```bash
 # All tests
-uv run pytest                     # 155 tests
+uv run pytest                     # 221 tests
 
 # By category
 uv run pytest tests/unit/         # Domain models, state machine, event store
