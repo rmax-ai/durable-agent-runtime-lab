@@ -1,0 +1,42 @@
+{
+  "experiment_id": "10c651d9-0131-4043-9972-5035a36ef67e",
+  "timestamp": "2026-07-11T19:14:38.800943+00:00",
+  "goal": "Add a GET /users endpoint that returns the list of users as JSON. Update src/app.py with the route, ensure src/models.py has the necessary data access, and add tests for the new endpoint",
+  "goal_id": "94654b73-dd3d-446f-9ba2-330513e87b8a",
+  "baseline": {
+    "workflow_id": "2b87bcbd-31c6-4d73-986c-63de76b31dc2",
+    "success": true,
+    "iterations": 2,
+    "output": "Baseline iteration 2: Add a GET /users endpoint that returns the list of\n",
+    "model_calls": 2,
+    "wall_clock_time": 0.005
+  },
+  "durable": {
+    "workflow_id": "ded4a940-c3e3-4666-b44d-a1b93a7198d5",
+    "success": true,
+    "error": "",
+    "task_results": {
+      "27393690-0d82-4048-aae9-48c20d4a920b": {
+        "success": true,
+        "output": "Completing: Add a GET /users endpoint that returns the list of\n"
+      }
+    },
+    "task_summary": {
+      "total": 1,
+      "committed": 1,
+      "failed": 0,
+      "blocked": 0
+    },
+    "task_id": "27393690-0d82-4048-aae9-48c20d4a920b",
+    "output": "Completing: Add a GET /users endpoint that returns the list of\n",
+    "wall_clock_time": 2.241
+  },
+  "metrics": {
+    "baseline_success": true,
+    "durable_success": true,
+    "speedup": 0.0,
+    "baseline_model_calls": 2
+  },
+  "faults_configured": 2,
+  "faults_triggered": []
+}

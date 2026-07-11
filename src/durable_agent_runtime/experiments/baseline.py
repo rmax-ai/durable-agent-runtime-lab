@@ -4,6 +4,8 @@ A deliberately simple baseline: goal → model → tool call → append to conve
 Same provider, tools, tasks, and budget as the durable runtime.
 """
 
+from __future__ import annotations
+
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -12,10 +14,10 @@ from durable_agent_runtime.domain import ActionProposal, GoalSpecification
 from durable_agent_runtime.domain.enums import FaultType, RiskLevel
 from durable_agent_runtime.execution.process_executor import ProcessExecutor
 from durable_agent_runtime.execution.tool_registry import ToolContext
+from durable_agent_runtime.experiments.fault_injection import FaultInjector
 from durable_agent_runtime.models.base import MockProvider, ModelProvider
 
 if TYPE_CHECKING:
-    from durable_agent_runtime.experiments.fault_injection import FaultInjector
     from durable_agent_runtime.models.base import ModelProvider
 
 

@@ -1,0 +1,42 @@
+{
+  "experiment_id": "c77817d6-3ae6-471d-ba27-f39f0d09afa2",
+  "timestamp": "2026-07-11T19:14:34.174359+00:00",
+  "goal": "Rename the function compute_tax to calculate_tax in src/calculator.py and update all call sites in the test file",
+  "goal_id": "29bdb444-cb5c-4b99-b64a-ec4e16ddc6fd",
+  "baseline": {
+    "workflow_id": "012c39c1-2c75-4a35-81a8-92c3ddcfbe35",
+    "success": true,
+    "iterations": 2,
+    "output": "Baseline iteration 2: Rename the function compute_tax to calculate_tax i\n",
+    "model_calls": 2,
+    "wall_clock_time": 0.004
+  },
+  "durable": {
+    "workflow_id": "d69cf30a-3455-487a-ae45-7c289e7e70d2",
+    "success": true,
+    "error": "",
+    "task_results": {
+      "0f7bbf46-7338-4c89-a01c-fc337087e149": {
+        "success": true,
+        "output": "Completing: Rename the function compute_tax to calculate_tax i\n"
+      }
+    },
+    "task_summary": {
+      "total": 1,
+      "committed": 1,
+      "failed": 0,
+      "blocked": 0
+    },
+    "task_id": "0f7bbf46-7338-4c89-a01c-fc337087e149",
+    "output": "Completing: Rename the function compute_tax to calculate_tax i\n",
+    "wall_clock_time": 0.834
+  },
+  "metrics": {
+    "baseline_success": true,
+    "durable_success": true,
+    "speedup": 0.0,
+    "baseline_model_calls": 2
+  },
+  "faults_configured": 2,
+  "faults_triggered": []
+}
