@@ -6,15 +6,16 @@ Same provider, tools, tasks, and budget as the durable runtime.
 
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from durable_agent_runtime.domain import ActionProposal, GoalSpecification
-from durable_agent_runtime.domain.enums import RiskLevel
+from durable_agent_runtime.domain.enums import FaultType, RiskLevel
 from durable_agent_runtime.execution.process_executor import ProcessExecutor
 from durable_agent_runtime.execution.tool_registry import ToolContext
 from durable_agent_runtime.models.base import MockProvider, ModelProvider
 
 if TYPE_CHECKING:
+    from durable_agent_runtime.experiments.fault_injection import FaultInjector
     from durable_agent_runtime.models.base import ModelProvider
 
 
@@ -25,12 +26,14 @@ class BaselineRuntime:
         self,
         workspace: Path,
         provider: ModelProvider | None = None,
+        fault_injector: FaultInjector | None = None,
     ) -> None:
         self.workspace = Path(workspace)
         self.provider = provider or MockProvider()
         self.executor = ProcessExecutor()
+        self.fault_injector = fault_injector
 
-    def run_goal(self, goal: GoalSpecification) -> dict:
+    def run_goal(self, goal: GoalSpecification) -> dict[str, Any]:
         """Execute a goal using a simple model→tool→repeat loop."""
         wf_id = uuid.uuid4()
         conversation: list[str] = []
@@ -39,9 +42,19 @@ class BaselineRuntime:
         max_iterations = 5
         result_output = ""
         final_success = False
+        tool_call_count = 0
 
         for iteration in range(max_iterations):
-            # Model proposes an action
+            # ── Simulate a model call ──────────────────────────────────────
+            # Check for model-related faults BEFORE creating the proposal
+            if self.fault_injector is not None:
+                ft = self.fault_injector.get_fault("action_proposed")
+                if ft == FaultType.MODEL_TIMEOUT:
+                    raise TimeoutError("Model timeout injected by fault injector")
+                if ft == FaultType.MALFORMED_MODEL_RESPONSE:
+                    # Simulate malformed output — skip to next iteration
+                    continue
+
             proposal = ActionProposal(
                 workflow_id=wf_id,
                 task_id=uuid.uuid4(),
@@ -55,8 +68,24 @@ class BaselineRuntime:
                 risk_level=RiskLevel.LOW,
             )
 
-            # Execute directly (no verification boundary)
-            context = ToolContext(workspace_root=str(self.workspace))
+            # ── Execute tool ───────────────────────────────────────────────
+            tool_call_count += 1
+
+            # Check for tool-related faults
+            if self.fault_injector is not None:
+                ft = self.fault_injector.get_fault_for_tool(proposal.tool_name)
+                if ft == FaultType.TOOL_TIMEOUT:
+                    context = ToolContext(
+                        workspace_root=str(self.workspace),
+                        timeout_seconds=1,
+                    )
+                elif ft == FaultType.PROCESS_KILL:
+                    raise SystemExit(137)
+                else:
+                    context = ToolContext(workspace_root=str(self.workspace))
+            else:
+                context = ToolContext(workspace_root=str(self.workspace))
+
             cmd_arg = proposal.arguments.get("command", "echo done")
             if isinstance(cmd_arg, str):
                 cmd_arg = ["sh", "-c", cmd_arg]

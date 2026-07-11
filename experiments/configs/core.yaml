@@ -1,0 +1,20 @@
+# DAR v0.2.0 — Baseline vs Durable Experiment Configuration
+# Per Section 22 (Fault Injection) and Phase 7 (Experiment Runs)
+experiment:
+  name: "DAR v0.2.0 — Baseline vs Durable"
+  runtimes: [baseline, durable]
+  tasks:
+    - benchmarks/tasks/task-01.yaml
+    - benchmarks/tasks/task-02.yaml
+  repeats: 3
+  provider: openai
+  model: gpt-4o
+  faults:
+    - type: process_kill
+      trigger:
+        event_type: action_execution_succeeded
+        occurrence: 2
+    - type: tool_timeout
+      trigger:
+        tool_name: run_tests
+        occurrence: 1

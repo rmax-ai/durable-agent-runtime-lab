@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 from durable_agent_runtime.domain import GoalSpecification
 from durable_agent_runtime.experiments.baseline import BaselineRuntime
 from durable_agent_runtime.experiments.durable import DurableRuntime
+from durable_agent_runtime.experiments.fault_injection import FaultInjector
 
 if TYPE_CHECKING:
     from durable_agent_runtime.models.base import ModelProvider
@@ -40,7 +41,12 @@ class ExperimentRunner:
         goal: GoalSpecification,
         faults: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        """Run both runtimes on the same goal and compare results."""
+        """Run both runtimes on the same goal and compare results.
+
+        If *faults* is provided, a :class:`FaultInjector` is created and
+        passed to both runtimes so that deterministic faults are applied
+        during execution.
+        """
         results: dict[str, Any] = {
             "experiment_id": str(uuid.uuid4()),
             "timestamp": datetime.now(UTC).isoformat(),
@@ -48,16 +54,50 @@ class ExperimentRunner:
             "goal_id": str(goal.goal_id),
         }
 
+        # Build fault config if provided
+        fault_config: dict[str, Any] = {"faults": faults} if faults else {}
+        fault_injector = FaultInjector(fault_config) if faults else None
+
         # Run baseline
         baseline_start = time.monotonic()
-        baseline = BaselineRuntime(self.workspace, provider=self._provider)
-        baseline_result = baseline.run_goal(goal)
+        baseline = BaselineRuntime(
+            self.workspace,
+            provider=self._provider,
+            fault_injector=fault_injector,
+        )
+        try:
+            baseline_result = baseline.run_goal(goal)
+        except SystemExit:
+            baseline_result = {
+                "workflow_id": str(uuid.uuid4()),
+                "success": False,
+                "error": "process_killed",
+                "iterations": 0,
+                "output": "",
+                "model_calls": 0,
+            }
         baseline_time = time.monotonic() - baseline_start
 
         # Run durable
         durable_start = time.monotonic()
-        durable = DurableRuntime(self.data_dir, self.workspace, provider=self._provider)
-        durable_result = durable.run_goal(goal)
+        durable = DurableRuntime(
+            self.data_dir,
+            self.workspace,
+            provider=self._provider,
+            fault_injector=fault_injector,
+        )
+        try:
+            durable_result = durable.run_goal(goal)
+        except SystemExit:
+            durable_result = {
+                "workflow_id": str(uuid.uuid4()),
+                "success": False,
+                "error": "process_killed",
+                "task_id": "",
+                "output": "",
+                "task_results": {},
+                "task_summary": {"total": 0, "committed": 0, "failed": 0, "blocked": 0},
+            }
         durable_time = time.monotonic() - durable_start
 
         results["baseline"] = {
@@ -77,9 +117,13 @@ class ExperimentRunner:
             "baseline_model_calls": baseline_result.get("model_calls", 0),
         }
 
-        # Fault injection
-        if faults:
-            results["faults_configured"] = len(faults)
+        # Fault injection summary
+        if fault_injector is not None:
+            results["faults_configured"] = len(faults or [])
+            results["faults_triggered"] = fault_injector.triggered_faults
+        else:
+            results["faults_configured"] = 0
+            results["faults_triggered"] = []
 
         return results
 

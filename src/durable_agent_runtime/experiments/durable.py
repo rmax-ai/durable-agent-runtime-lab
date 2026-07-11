@@ -8,12 +8,12 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from durable_agent_runtime.boundary.service import BoundaryService
 from durable_agent_runtime.domain import ActionProposal, GoalSpecification, Plan
-from durable_agent_runtime.domain.enums import RiskLevel, TaskStatus, WorkflowStatus
+from durable_agent_runtime.domain.enums import FaultType, RiskLevel, TaskStatus, WorkflowStatus
 from durable_agent_runtime.execution.process_executor import ProcessExecutor
 from durable_agent_runtime.execution.tool_registry import ToolContext, ToolRegistry
 from durable_agent_runtime.models.base import MockProvider, ModelProvider
@@ -21,6 +21,7 @@ from durable_agent_runtime.orchestration.engine import OrchestratorEngine
 from durable_agent_runtime.orchestration.scheduler import TaskScheduler
 
 if TYPE_CHECKING:
+    from durable_agent_runtime.experiments.fault_injection import FaultInjector
     from durable_agent_runtime.models.base import ModelProvider
 
 
@@ -37,6 +38,7 @@ class DurableRuntime:
         data_dir: Path,
         workspace: Path,
         provider: ModelProvider | None = None,
+        fault_injector: FaultInjector | None = None,
     ) -> None:
         self.data_dir = Path(data_dir)
         self.workspace = Path(workspace)
@@ -46,10 +48,11 @@ class DurableRuntime:
         self.provider = provider or MockProvider()
         self.tool_registry = ToolRegistry()
         self.scheduler = TaskScheduler(self.engine.state, self.engine)
+        self.fault_injector = fault_injector
 
     # ── Public entry point ──────────────────────────────────────────────────
 
-    def run_goal(self, goal: GoalSpecification, plan: Plan | None = None) -> dict:
+    def run_goal(self, goal: GoalSpecification, plan: Plan | None = None) -> dict[str, Any]:
         """Execute a goal specification through the durable runtime.
 
         If *plan* is provided it is used directly (multi-task DAG support).
@@ -60,8 +63,12 @@ class DurableRuntime:
         # 1. Create workflow
         wf_id = self.engine.create_workflow(goal.goal_id, goal.repository_path)
 
+        # Check for fault after workflow creation
+        self._check_event_fault("workflow_created")
+
         # 2. Compile → Plan
         self.engine.transition_workflow(wf_id, WorkflowStatus.COMPILED)
+        self._check_event_fault("goal_compiled")
 
         if plan is not None:
             # Use the provided multi-task plan
@@ -149,12 +156,23 @@ class DurableRuntime:
             },
             # Backward-compat fields for single-task mode
             "task_id": str(plan.tasks[0].task_id) if plan.tasks else "",
-            "output": (
-                next(iter(results.values())).get("output", "")
-                if results
-                else ""
-            ),
+            "output": (next(iter(results.values())).get("output", "") if results else ""),
         }
+
+    # ── Fault injection helpers ─────────────────────────────────────────────
+
+    def _check_event_fault(self, event_type: str) -> None:
+        """Check the fault injector for an event-based fault and react."""
+        if self.fault_injector is None:
+            return
+        ft = self.fault_injector.get_fault(event_type)
+        if ft is None:
+            return
+        if ft == FaultType.PROCESS_KILL:
+            raise SystemExit(137)
+        if ft == FaultType.MODEL_TIMEOUT:
+            raise TimeoutError(f"Model timeout injected at event {event_type!r}")
+        # Other fault types are handled at the tool/execution level
 
     # ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -169,7 +187,7 @@ class DurableRuntime:
             required_tools=goal.available_tools,
         )
 
-    def _execute_task(self, wf_id: UUID, task_id: UUID, goal: GoalSpecification) -> dict:
+    def _execute_task(self, wf_id: UUID, task_id: UUID, goal: GoalSpecification) -> dict[str, Any]:
         """Execute one task through the proposal→verify→execute→commit cycle.
 
         NOTE: The task is expected to already be in READY state (the scheduler
@@ -179,13 +197,16 @@ class DurableRuntime:
         self.engine.transition_task(task_id, wf_id, TaskStatus.CLAIMED)
         self.engine.transition_task(task_id, wf_id, TaskStatus.PROPOSING)
 
+        # Check for model-related faults before creating proposal
+        self._check_event_fault("action_proposed")
+
         # Create an action proposal
         proposal = ActionProposal(
             workflow_id=wf_id,
             task_id=task_id,
             actor_id="mock-model",
             tool_name="run_command",
-            arguments={"command": f"echo 'Completing: {goal.raw_goal[:50]}'"},
+            arguments=({"command": f"echo 'Completing: {goal.raw_goal[:50]}'"}),
             intention=f"Execute: {goal.normalized_goal[:80]}",
             idempotency_key=f"task-{task_id}-attempt-1",
             risk_level=RiskLevel.LOW,
@@ -204,7 +225,23 @@ class DurableRuntime:
 
         # Execute
         self.engine.transition_task(task_id, wf_id, TaskStatus.EXECUTING)
+
+        # Check for execution-level faults before tool call
+        self._check_event_fault("action_execution_started")
+
         context = ToolContext(workspace_root=str(self.workspace))
+
+        # Check for tool-level faults
+        if self.fault_injector is not None:
+            ft = self.fault_injector.get_fault_for_tool(proposal.tool_name)
+            if ft == FaultType.TOOL_TIMEOUT:
+                context = ToolContext(
+                    workspace_root=str(self.workspace),
+                    timeout_seconds=1,
+                )
+            elif ft == FaultType.PROCESS_KILL:
+                raise SystemExit(137)
+
         cmd_arg = proposal.arguments.get("command", "echo done")
         if isinstance(cmd_arg, str):
             cmd_arg = ["sh", "-c", cmd_arg]
@@ -212,6 +249,7 @@ class DurableRuntime:
 
         # Post-verify
         self.engine.transition_task(task_id, wf_id, TaskStatus.POST_VERIFYING)
+        self._check_event_fault("action_execution_succeeded")
 
         if result.success:
             # Record idempotency and commit
