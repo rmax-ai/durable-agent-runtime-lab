@@ -1,7 +1,7 @@
 <script lang="ts">
   const stats = [
-    { label: "Tests", value: "221" },
-    { label: "Domain Models", value: "8" },
+    { label: "Tests", value: "256" },
+    { label: "Domain Models", value: "19" },
     { label: "Benchmarks", value: "6" },
     { label: "ADRs", value: "7" },
     { label: "Runtimes", value: "2" },
@@ -226,7 +226,7 @@ cd durable-agent-runtime-lab
 uv sync --extra dev
 
 # Run tests
-uv run pytest                # 221 tests
+uv run pytest                # 256 tests
 
 # Run an experiment (mock provider, no API key needed)
 uv run dar experiment run --config experiments/configs/quickstart.yaml

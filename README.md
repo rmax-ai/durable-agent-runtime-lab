@@ -29,12 +29,12 @@ Models are **stochastic proposal generators**. They interpret goals, propose pla
 
 ## Current Status
 
-All 9 milestones implemented. 221 tests passing.
+All 9 milestones implemented. 256 tests (254 passed, 2 skipped).
 
 | Milestone | Description | Status |
 |-----------|-------------|--------|
 | M0 | Repository foundation (pyproject.toml, Makefile, AGENTS.md) | ✅ |
-| M1 | Canonical Pydantic domain models (8 models, 12 enums, state machines) | ✅ |
+| M1 | Canonical Pydantic domain models (19 models, 10 enums, state machines) | ✅ |
 | M2 | JSONL event ledger (hash chaining) + SQLite state store + orchestrator | ✅ |
 | M3 | Tool boundary (registry, proposal verification, process executor, security) | ✅ |
 | M4 | Git checkpoint manager + recovery/replay | ✅ |
@@ -175,10 +175,10 @@ See [docs/adr/](docs/adr/) for detailed decisions:
 ## Known Limitations
 
 - OpenAI provider is wired and the quickstart experiment succeeds with `gpt-5.4-mini`, but live runs still depend on local credentials and upstream API behavior
-- Docker executor not yet integrated (process executor only)
+- Docker executor implemented (127 lines, process isolation via `--network none`) but not yet integrated into experiment runner
 - Single-task-per-workflow in CLI; multi-task DAG not yet scheduled
 - Human approval CLI stubs exist but approval flow not implemented
-- Fault injection configured but not yet integrated into experiment runner
+- Fault injection classes implemented but not yet wired into experiment runner
 
 ## License
 

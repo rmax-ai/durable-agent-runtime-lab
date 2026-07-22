@@ -1,6 +1,6 @@
 [project]
 name = "durable-agent-runtime"
-version = "0.1.0"
+version = "0.2.0"
 description = "Durable Agent Runtime Lab — research platform comparing conventional vs. deterministic agent workflows"
 readme = "README.md"
 license = { text = "MIT" }
